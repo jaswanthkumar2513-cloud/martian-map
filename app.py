@@ -171,6 +171,22 @@ def run_physics_sim():
     sim = engine.simulate_physics(mass, height, dist, geff)
     return jsonify(sim)
 
+@app.route("/api/ice-deposits")
+def get_ice_deposits():
+    """Returns NASA SHARAD radar data on subsurface water ice glaciers."""
+    return jsonify(engine.get_subsurface_ice_sheets())
+
+@app.route("/api/eva-tasks")
+def get_eva_tasks():
+    """Returns live Astronaut EVA operational task dispatch list."""
+    return jsonify(engine.get_astronaut_eva_tasks())
+
+@app.route("/api/dust-storm")
+def get_dust_storm_simulation():
+    """Simulates Martian dust storm severity and its impact on power, visibility, and rovers."""
+    severity = request.args.get("severity", "clear").lower()
+    return jsonify(engine.simulate_dust_storm(severity))
+
 @app.route("/api/topography/cross-sections")
 def get_topography_cross_sections():
     """Returns detailed elevation profile cross-sections for major Martian geological features."""

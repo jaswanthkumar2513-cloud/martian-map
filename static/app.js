@@ -10,7 +10,8 @@ let layerGroups = {
     gmz: L.layerGroup(),
     routes: L.layerGroup(),
     hirise: L.layerGroup(),
-    thermal: L.layerGroup()
+    thermal: L.layerGroup(),
+    ice: L.layerGroup()
 };
 
 let cachedRoutes = [];
@@ -18,6 +19,9 @@ let cachedGMZs = [];
 let currentRouteIndex = 0;
 let gravityChart = null;
 let isNightMode = false;
+let audioEnabled = true;
+let audioCtx = null;
+let simInterval = null;
 
 // Initialize when DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
@@ -27,6 +31,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadPresetRoutes();
     loadHiRISEData();
     loadThermalMap();
+    loadIceSheets();
+    loadEvaTasks();
     initPhysicsSimulator();
     initCrossSectionChart();
 });
@@ -723,4 +729,220 @@ function queryCurrentSectorODE() {
         .catch(err => {
             container.innerHTML = `<div class="text-rose-400">ODE query timed out. Showing cached MOLA MEGDR data.</div>`;
         });
+}
+
+// ==============================================================
+// 6. SUBSURFACE WATER ICE, DUST STORM, EVA TASKS & SFX
+// ==============================================================
+
+function loadIceSheets() {
+    fetch("/api/ice-deposits")
+        .then(res => res.json())
+        .then(deposits => {
+            layerGroups.ice.clearLayers();
+            deposits.forEach(ice => {
+                const circle = L.circle([ice.lat, ice.lon_leaflet], {
+                    radius: 260000,
+                    color: "#38bdf8",
+                    weight: 2,
+                    fillColor: "#0284c7",
+                    fillOpacity: 0.28,
+                    dashArray: "3, 5"
+                }).addTo(layerGroups.ice);
+
+                const icon = L.divIcon({
+                    className: "ice-sheet-icon",
+                    html: `
+                        <div class="w-5 h-5 rounded-full bg-cyan-950 border-2 border-cyan-300 flex items-center justify-center shadow-lg shadow-cyan-400/50 hover:scale-125 transition-transform cursor-pointer">
+                            <i class="fa-solid fa-icicles text-cyan-300 text-[10px]"></i>
+                        </div>
+                    `,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+
+                const marker = L.marker([ice.lat, ice.lon_leaflet], { icon }).addTo(layerGroups.ice);
+                
+                const popup = `
+                    <div class="bg-space-950 p-2.5 rounded border border-cyan-400/50 text-xs font-mono text-slate-100 max-w-xs">
+                        <div class="flex items-center justify-between border-b border-cyan-800 pb-1 mb-1.5">
+                            <span class="font-bold text-cyan-300">${ice.code}: ${ice.name}</span>
+                            <span class="text-[10px] bg-cyan-900 text-cyan-200 px-1.5 py-0.5 rounded">${ice.purity_pct}% Purity</span>
+                        </div>
+                        <div class="text-[11px] text-slate-300 mb-1.5">${ice.mission_value}</div>
+                        <div class="text-[10px] text-slate-400 space-y-0.5">
+                            <div>Depth below surface: <strong class="text-white">${ice.depth_below_surface_m} meters</strong></div>
+                            <div>Glacier Thickness: <strong class="text-amber-400">${ice.estimated_thickness_m} meters</strong></div>
+                            <div>Water Volume: <strong class="text-cyan-300">${ice.volume_km3.toLocaleString()} km³</strong></div>
+                        </div>
+                    </div>
+                `;
+                circle.bindPopup(popup);
+                marker.bindPopup(popup);
+            });
+        });
+}
+
+function loadEvaTasks() {
+    fetch("/api/eva-tasks")
+        .then(res => res.json())
+        .then(tasks => {
+            const container = document.getElementById("evaTaskContainer");
+            if (!container) return;
+            container.innerHTML = "";
+
+            tasks.forEach(t => {
+                const card = document.createElement("div");
+                card.className = "bg-space-900/90 border border-space-700 hover:border-cyan-500/50 p-2.5 rounded text-xs font-mono space-y-1.5 transition-all";
+                let priorityColor = t.priority === "CRITICAL" ? "text-rose-400 bg-rose-950 border-rose-500/40" : (t.priority === "HIGH" ? "text-amber-400 bg-amber-950 border-amber-500/40" : "text-cyan-300 bg-cyan-950 border-cyan-500/40");
+                
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-slate-200">${t.id}: ${t.title}</span>
+                        <span class="text-[9px] px-1.5 py-0.5 rounded border ${priorityColor}">${t.priority}</span>
+                    </div>
+                    <div class="text-[10px] text-slate-400">Assigned: <strong class="text-slate-300">${t.crew}</strong> • Site: <span class="text-cyan-400">${t.site}</span></div>
+                    <div class="flex items-center justify-between text-[10px] pt-1 border-t border-space-800">
+                        <span class="text-emerald-400 font-semibold">${t.status}</span>
+                        <button onclick="playSfx('click'); alert('Telemetry dispatched to suit HUD for ${t.id}')" class="px-2 py-0.5 rounded bg-space-800 hover:bg-cyan-900 text-cyan-300 text-[9px] border border-space-600">Dispatch</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        });
+}
+
+function setDustStormSeverity(severity) {
+    playSfx('alert');
+    fetch(`/api/dust-storm?severity=${severity}`)
+        .then(res => res.json())
+        .then(d => {
+            document.getElementById("badgeDustStorm").innerText = d.alert_level;
+            document.getElementById("badgeDustStorm").style.color = d.color;
+            document.getElementById("stormSolarPower").innerText = `${d.solar_power_pct}% (Tau ${d.tau})`;
+            document.getElementById("stormVisibility").innerText = `${d.visibility_km} km`;
+            document.getElementById("stormRoverImpact").innerHTML = `
+                <div class="text-[10px] space-y-0.5">
+                    <div><strong class="text-mars">Wheeled Rover:</strong> ${d.wheeled_rover_status}</div>
+                    <div><strong class="text-cyan-400">Antigravity Glider:</strong> ${d.antigrav_status}</div>
+                </div>
+            `;
+        });
+}
+
+function startTraversalSimulation() {
+    playSfx('warp');
+    const ticker = document.getElementById("simTicker");
+    const bar = document.getElementById("simProgressBar");
+    const pct = document.getElementById("simProgress");
+    const btn = document.getElementById("btnSimulateRoute");
+
+    if (simInterval) clearInterval(simInterval);
+
+    ticker.classList.remove("hidden");
+    btn.disabled = true;
+    btn.classList.add("opacity-50");
+
+    let progress = 0;
+    const simMarker = L.marker([0, 0], {
+        icon: L.divIcon({
+            className: "flight-sim-vehicle",
+            html: `<div class="w-6 h-6 rounded-full bg-cyan-400 border-2 border-white flex items-center justify-center shadow-lg shadow-cyan-400/80 animate-bounce"><i class="fa-solid fa-shuttle-space text-space-950 text-xs"></i></div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        })
+    }).addTo(layerGroups.routes);
+
+    const r = cachedRoutes[currentRouteIndex];
+    const waypoints = (r && r.route_geometry.antigrav) || [[18.38, 77.58], [12.80, 88.20]];
+
+    simInterval = setInterval(() => {
+        progress += 4;
+        if (progress > 100) progress = 100;
+
+        pct.innerText = `${progress}%`;
+        bar.style.width = `${progress}%`;
+
+        // Interpolate position along waypoints
+        const idx = Math.min(waypoints.length - 1, Math.floor((progress / 100) * (waypoints.length - 1)));
+        simMarker.setLatLng(waypoints[idx]);
+
+        // Dynamic battery drain simulation
+        const batt = Math.max(88, 100 - Math.floor(progress * 0.08));
+        document.getElementById("simBattery").innerText = `${batt}%`;
+
+        if (progress >= 100) {
+            clearInterval(simInterval);
+            simInterval = null;
+            playSfx('click');
+            setTimeout(() => {
+                map.removeLayer(simMarker);
+                ticker.classList.add("hidden");
+                btn.disabled = false;
+                btn.classList.remove("opacity-50");
+                alert(`Mission Flight Simulation Complete!\nDestination reached in record time with 93% energy efficiency!`);
+            }, 600);
+        }
+    }, 180);
+}
+
+// Procedural Web Audio API sound synthesizer
+function initAudio() {
+    if (!audioCtx && (window.AudioContext || window.webkitAudioContext)) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function toggleAudio() {
+    initAudio();
+    audioEnabled = !audioEnabled;
+    const lbl = document.getElementById("lblAudio");
+    const icon = document.getElementById("iconAudio");
+    if (audioEnabled) {
+        lbl.innerText = "SFX ON";
+        icon.className = "fa-solid fa-volume-high text-cyan-400 text-xs";
+        playSfx('click');
+    } else {
+        lbl.innerText = "SFX MUTED";
+        icon.className = "fa-solid fa-volume-xmark text-slate-500 text-xs";
+    }
+}
+
+function playSfx(type) {
+    if (!audioEnabled) return;
+    try {
+        initAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+        if (type === 'click') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
+            gain.gain.setValueAtTime(0.08, now);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.05);
+            osc.start(now);
+            osc.stop(now + 0.05);
+        } else if (type === 'warp') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(220, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.35);
+            gain.gain.setValueAtTime(0.06, now);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.35);
+            osc.start(now);
+            osc.stop(now + 0.35);
+        } else if (type === 'alert') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(550, now);
+            osc.frequency.setValueAtTime(440, now + 0.12);
+            gain.gain.setValueAtTime(0.09, now);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.25);
+            osc.start(now);
+            osc.stop(now + 0.25);
+        }
+    } catch (e) {}
 }

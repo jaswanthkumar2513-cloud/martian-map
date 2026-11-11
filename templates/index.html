@@ -101,6 +101,9 @@
                     <span class="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-space-800 border border-cyan-500/30 text-cyan-400">
                         NASA Space Apps Challenge
                     </span>
+                    <span class="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-purple-950 border border-purple-500/40 text-purple-300 font-mono hidden md:inline">
+                        TEAM ARES
+                    </span>
                 </div>
                 <p class="text-xs text-slate-400 flex items-center space-x-2">
                     <span>MOLA Topography</span>
@@ -124,8 +127,12 @@
             </button>
         </div>
 
-        <!-- Right: Real-time Telemetry Bar -->
-        <div class="hidden lg:flex items-center space-x-4 text-xs font-mono">
+        <!-- Right: Real-time Telemetry Bar & Audio SFX Toggle -->
+        <div class="hidden lg:flex items-center space-x-3 text-xs font-mono">
+            <button id="btnAudio" onclick="toggleAudio()" title="Toggle Sci-Fi Mission Audio Feedback" class="px-2.5 py-1 rounded bg-space-950 border border-cyan-500/40 text-[11px] text-cyan-300 font-mono flex items-center space-x-1.5 hover:bg-space-800 transition-all">
+                <i id="iconAudio" class="fa-solid fa-volume-high text-cyan-400 text-xs"></i>
+                <span id="lblAudio">SFX ON</span>
+            </button>
             <div class="bg-space-950/80 px-2.5 py-1 rounded border border-space-700/60 flex items-center space-x-2">
                 <span class="text-slate-400 text-[10px] uppercase">Sol:</span>
                 <span id="telemetrySol" class="text-amber-400 font-bold">842</span>
@@ -172,6 +179,10 @@
                 <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
                     <input type="checkbox" id="layerThermal" onchange="toggleMapLayer('thermal')" class="rounded border-space-600 text-rose-500 focus:ring-0">
                     <span class="flex items-center space-x-1"><i class="fa-solid fa-temperature-half text-rose-400 text-[10px]"></i><span>Thermal Map</span></span>
+                </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerIce" checked onchange="toggleMapLayer('ice')" class="rounded border-space-600 text-cyan-400 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-icicles text-cyan-300 text-[10px]"></i><span>Subsurface Ice (SHARAD)</span></span>
                 </label>
                 <div class="h-4 w-px bg-space-700"></div>
                 <button id="btnDiurnal" onclick="toggleDiurnalCycle()" title="Toggle Martian Solar Noon vs Polar Night Diurnal Cycle" class="px-2 py-0.5 rounded bg-space-800 border border-amber-500/50 text-[10px] text-amber-300 font-mono flex items-center space-x-1 hover:bg-space-700">
@@ -281,6 +292,26 @@
 
                     <div id="routeObstacleNote" class="text-[11px] text-slate-300 italic bg-space-900/60 p-2 rounded border border-space-700/50">
                         Crater rim escarpment with 22° slopes and boulder fields bypassed via 280 km direct glide corridor.
+                    </div>
+
+                    <!-- Real-Time Traversal Flight Simulation Trigger -->
+                    <button id="btnSimulateRoute" onclick="startTraversalSimulation()" class="w-full bg-gradient-to-r from-cyan-600 via-teal-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white font-mono text-xs py-2 rounded-lg flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20 transition-all font-bold cursor-pointer">
+                        <i class="fa-solid fa-play"></i>
+                        <span>▶ Launch Real-Time Mission Simulation</span>
+                    </button>
+                    <div id="simTicker" class="hidden bg-space-950 p-2.5 rounded border border-cyan-500/60 font-mono text-xs space-y-1.5">
+                        <div class="flex items-center justify-between text-cyan-300 font-bold text-[11px]">
+                            <span class="flex items-center space-x-1.5"><i class="fa-solid fa-shuttle-space animate-pulse text-cyan-400"></i><span>SIMULATION IN PROGRESS</span></span>
+                            <span id="simProgress">0%</span>
+                        </div>
+                        <div class="w-full bg-space-800 rounded-full h-1.5 overflow-hidden">
+                            <div id="simProgressBar" class="bg-gradient-to-r from-cyan-400 to-purple-400 h-1.5 transition-all duration-300" style="width:0%"></div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 text-[10px] text-slate-400 pt-0.5">
+                            <div>Speed: <strong class="text-white" id="simSpeed">16.5 km/h</strong></div>
+                            <div>Battery: <strong class="text-emerald-400" id="simBattery">98%</strong></div>
+                            <div>Hazard: <strong class="text-cyan-300">BYPASSED</strong></div>
+                        </div>
                     </div>
 
                     <!-- Topographic Cross-Section & Elevation Slicer (MOLA / ODE) -->
@@ -393,6 +424,53 @@
                     <div class="flex items-center justify-between text-[10px] font-mono bg-space-900/60 p-2 rounded border border-space-700/60">
                         <span class="text-slate-400">Atmospheric Dust Optical Depth:</span>
                         <span class="text-cyan-400 font-bold">τ = 0.42 (Clear Visibility)</span>
+                    </div>
+                </div>
+
+                <!-- 5. Martian Dust Storm Early Warning & Radar System -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-wind text-amber-400"></i>
+                            <span>Dust Storm Radar & Alert System</span>
+                        </h3>
+                        <span id="badgeDustStorm" class="text-[10px] text-emerald-300 bg-emerald-950 px-2 py-0.5 rounded font-mono">NOMINAL ATMOSPHERE</span>
+                    </div>
+
+                    <div class="flex items-center space-x-2 text-xs font-mono">
+                        <span class="text-slate-400 text-[10px] uppercase">Simulate Storm:</span>
+                        <button onclick="setDustStormSeverity('clear')" class="px-2 py-0.5 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 text-[10px]">Clear</button>
+                        <button onclick="setDustStormSeverity('regional')" class="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-500/40 text-[10px]">Regional (τ 1.7)</button>
+                        <button onclick="setDustStormSeverity('global')" class="px-2 py-0.5 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-500/40 text-[10px]">Global (τ 4.6)</button>
+                    </div>
+
+                    <div id="dustStormStatusCard" class="bg-space-900 p-2.5 rounded border border-space-700 space-y-2 text-xs font-mono">
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-400 text-[10px]">Solar Power Generation:</span>
+                            <span id="stormSolarPower" class="text-emerald-400 font-bold">100% (Optimal)</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-400 text-[10px]">Rover Surface Visibility:</span>
+                            <span id="stormVisibility" class="text-cyan-300 font-bold">45.0 km</span>
+                        </div>
+                        <div class="text-[10px] text-slate-300 pt-1 border-t border-space-800" id="stormRoverImpact">
+                            Wheeled rovers and Antigravity gliders operating with zero atmospheric interference.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. Astronaut Operational EVA Task Dispatch Board -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-list-check text-cyan-400"></i>
+                            <span>Astronaut EVA Task Dispatch</span>
+                        </h3>
+                        <span class="text-[10px] text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded font-mono">LIVE QUEUE</span>
+                    </div>
+
+                    <div id="evaTaskContainer" class="space-y-2">
+                        <!-- Populated dynamically via JS -->
                     </div>
                 </div>
 

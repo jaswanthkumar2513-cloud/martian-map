@@ -93,7 +93,28 @@ def test_all():
     assert len(ode_data["products"]) > 0
     print(f"[PASS] GET /api/ode/search -> Found {len(ode_data['products'])} NASA PDS orbital products for Olympus Mons sector.")
 
-    print("\nALL 12 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
+    # 13. Subsurface Water Ice (SHARAD)
+    res_ice = client.get("/api/ice-deposits")
+    assert res_ice.status_code == 200
+    ice_data = res_ice.get_json()
+    assert len(ice_data) >= 4
+    print(f"[PASS] GET /api/ice-deposits -> Found {len(ice_data)} major subsurface water glaciers.")
+
+    # 14. Astronaut EVA Tasks Dispatch
+    res_eva = client.get("/api/eva-tasks")
+    assert res_eva.status_code == 200
+    eva_data = res_eva.get_json()
+    assert len(eva_data) >= 4
+    print(f"[PASS] GET /api/eva-tasks -> Active tasks loaded: {len(eva_data)} missions.")
+
+    # 15. Dust Storm Simulation
+    res_storm = client.get("/api/dust-storm?severity=global")
+    assert res_storm.status_code == 200
+    storm_data = res_storm.get_json()
+    assert storm_data["tau"] > 4.0
+    print(f"[PASS] GET /api/dust-storm -> Global dust storm simulated: Tau {storm_data['tau']}, Solar power: {storm_data['solar_power_pct']}%.")
+
+    print("\nALL 15 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
 
 if __name__ == "__main__":
     test_all()

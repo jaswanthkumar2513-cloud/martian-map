@@ -142,6 +142,153 @@ class MarsEngine:
                 })
         return grid
 
+    def get_subsurface_ice_sheets(self):
+        """
+        NASA SHARAD (Shallow Radar) & MRO soundings of massive subsurface water ice deposits.
+        Crucial for in-situ resource utilization (ISRU) drinking water and rocket propellant synthesis.
+        """
+        return [
+            {
+                "name": "Arcadia Planitia Subsurface Glaciers",
+                "code": "ICE-01",
+                "lat": 39.30,
+                "lon": 189.70,
+                "lon_leaflet": 189.70 if 189.70 <= 180 else 189.70 - 360,
+                "depth_below_surface_m": 1.5,
+                "estimated_thickness_m": 120,
+                "purity_pct": 96,
+                "volume_km3": 14500,
+                "accessibility": "Very High (Accessible by shallow automated scrape drill)",
+                "mission_value": "Primary candidate site for human base water supply and LOX/Methane propellant"
+            },
+            {
+                "name": "Utopia Planitia Subsurface Ice Sheet",
+                "code": "ICE-02",
+                "lat": 45.00,
+                "lon": 110.00,
+                "lon_leaflet": 110.00 if 110.00 <= 180 else 110.00 - 360,
+                "depth_below_surface_m": 2.5,
+                "estimated_thickness_m": 170,
+                "purity_pct": 92,
+                "volume_km3": 14300,
+                "accessibility": "High (Covered by 1-2.5m dust-regolith mantle)",
+                "mission_value": "Contains more water than Lake Superior on Earth; shielded from cosmic radiation"
+            },
+            {
+                "name": "Korolev Crater Permanent Ice Dome",
+                "code": "ICE-03",
+                "lat": 73.00,
+                "lon": 165.00,
+                "lon_leaflet": 165.00 if 165.00 <= 180 else 165.00 - 360,
+                "depth_below_surface_m": 0.0,
+                "estimated_thickness_m": 1800,
+                "purity_pct": 99,
+                "volume_km3": 2200,
+                "accessibility": "Direct Surface Access (Cryogenic cold trap reservoir)",
+                "mission_value": "1.8 km thick pure water ice layer kept frozen by cold air trap year-round"
+            },
+            {
+                "name": "Deuteronilus Mensae Lobate Apron",
+                "code": "ICE-04",
+                "lat": 43.80,
+                "lon": 23.50,
+                "lon_leaflet": 23.50,
+                "depth_below_surface_m": 4.0,
+                "estimated_thickness_m": 350,
+                "purity_pct": 88,
+                "volume_km3": 8700,
+                "accessibility": "Moderate (Debris-covered rock glacier)",
+                "mission_value": "Ancient glacier flows preserved under rocky insulating landslide blanket"
+            }
+        ]
+
+    def get_astronaut_eva_tasks(self):
+        """Active operational EVA task dispatch board for Martian surface crew."""
+        return [
+            {
+                "id": "EVA-101",
+                "title": "Subsurface Ice Core Drill & Purity Assay",
+                "site": "Arcadia Glacial Base",
+                "crew": "Dr. Sarah Lin, Specialist Cole",
+                "priority": "HIGH",
+                "status": "In Progress (68%)",
+                "duration_hrs": 4.5,
+                "suit_power_wh": 1420,
+                "tool_assigned": "Cryo-Drill Rig & Heated Vacuum Sieve"
+            },
+            {
+                "id": "EVA-102",
+                "title": "Antigravity Magnetic Guide-Track Alignment",
+                "site": "Valles Marineris Lift Corridor",
+                "crew": "Cmdr. Elena Rostova",
+                "priority": "CRITICAL",
+                "status": "Active (Nominal)",
+                "duration_hrs": 3.0,
+                "suit_power_wh": 950,
+                "tool_assigned": "Superconducting Vector Field Calibrator"
+            },
+            {
+                "id": "EVA-103",
+                "title": "Microwave Sintering of Regolith Radiation Shield",
+                "site": "Jezero Delta Habitat Alpha",
+                "crew": "Dr. Aris Thorne",
+                "priority": "HIGH",
+                "status": "Scheduled (Next Sol)",
+                "duration_hrs": 6.0,
+                "suit_power_wh": 1890,
+                "tool_assigned": "Thermal Microwave Sintering Rover"
+            },
+            {
+                "id": "EVA-104",
+                "title": "Lava Tube Structural Sensor Deployment",
+                "site": "Olympus Mons High Caldera Base",
+                "crew": "Specialist Wei Chen",
+                "priority": "MEDIUM",
+                "status": "Completed (Logged)",
+                "duration_hrs": 5.2,
+                "suit_power_wh": 1640,
+                "tool_assigned": "Seismic Sensor Node Array"
+            }
+        ]
+
+    def simulate_dust_storm(self, severity="normal"):
+        """
+        Martian dust storm impact simulation on operations, optical depth, solar power, and rover range.
+        """
+        scenarios = {
+            "clear": {
+                "label": "Clear Atmosphere (Nominal)",
+                "tau": 0.35,
+                "solar_power_pct": 100,
+                "visibility_km": 45.0,
+                "wheeled_rover_status": "100% OPERATIONAL",
+                "antigrav_status": "OPTIMAL (Cruise 18 km/h)",
+                "alert_level": "GREEN (Nominal)",
+                "color": "#10b981"
+            },
+            "regional": {
+                "label": "Regional Dust Storm (Active)",
+                "tau": 1.75,
+                "solar_power_pct": 38,
+                "visibility_km": 4.2,
+                "wheeled_rover_status": "CAUTION: Speed reduced to 0.08 km/h. Solar arrays blocked by 62%.",
+                "antigrav_status": "NOMINAL: Micro-fusion driven. Operating at 14 km/h.",
+                "alert_level": "AMBER (Regional Warning)",
+                "color": "#f59e0b"
+            },
+            "global": {
+                "label": "Global Planet-Encircling Storm (Severe)",
+                "tau": 4.60,
+                "solar_power_pct": 8,
+                "visibility_km": 0.3,
+                "wheeled_rover_status": "GROUNDED: Solar depletion imminent. Emergency sleep mode engaged.",
+                "antigrav_status": "MISSION ESSENTIAL: Sole operational transport. Radio-beacon radar active.",
+                "alert_level": "RED (Planetary Emergency)",
+                "color": "#ef4444"
+            }
+        }
+        return scenarios.get(severity, scenarios["clear"])
+
     def get_cross_sections(self):
         """Topographic cross-section profiles for major Martian geological monuments."""
         return {
