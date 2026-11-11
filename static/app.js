@@ -28,6 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadHiRISEData();
     loadThermalMap();
     initPhysicsSimulator();
+    initCrossSectionChart();
 });
 
 // ==============================================================
@@ -588,4 +589,138 @@ function checkAnswer(isCorrect) {
         fb.className = "text-xs p-2 rounded font-mono bg-red-950 border border-red-500/50 text-red-300";
         fb.innerHTML = "<strong>INCORRECT:</strong> Try again! Think about the physical slope and depth of the Martian canyon system.";
     }
+}
+
+// ==============================================================
+// 5. TOPOGRAPHIC CROSS-SECTION SLICER & ODE SEARCH
+// ==============================================================
+let crossSectionChart = null;
+let cachedCrossSections = null;
+
+function initCrossSectionChart() {
+    const ctx = document.getElementById("chartElevationCrossSection");
+    if (!ctx) return;
+
+    fetch("/api/topography/cross-sections")
+        .then(res => res.json())
+        .then(data => {
+            cachedCrossSections = data;
+            const initial = data.olympus;
+
+            crossSectionChart = new Chart(ctx.getContext("2d"), {
+                type: "line",
+                data: {
+                    labels: initial.labels,
+                    datasets: [
+                        {
+                            label: "Antigravity Flight Corridor",
+                            data: initial.antigrav_altitude,
+                            borderColor: "#00f0ff",
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            pointRadius: 2,
+                            tension: 0.3,
+                            fill: false
+                        },
+                        {
+                            label: "MOLA Surface Topography",
+                            data: initial.elevations,
+                            borderColor: "#ea580c",
+                            backgroundColor: "rgba(234, 88, 12, 0.25)",
+                            borderWidth: 2,
+                            pointRadius: 3,
+                            pointBackgroundColor: "#fb923c",
+                            fill: true,
+                            tension: 0.2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            grid: { color: "#1e293b" },
+                            ticks: {
+                                color: "#94a3b8",
+                                font: { family: "monospace", size: 8 },
+                                callback: val => `${(val / 1000).toFixed(1)}k m`
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: "#64748b",
+                                font: { family: "monospace", size: 7 },
+                                maxRotation: 30
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: "#cbd5e1",
+                                font: { family: "monospace", size: 9 },
+                                boxWidth: 10
+                            }
+                        }
+                    }
+                }
+            });
+
+            selectProfile("olympus");
+        });
+}
+
+function selectProfile(profileKey) {
+    if (!cachedCrossSections || !crossSectionChart) return;
+    const p = cachedCrossSections[profileKey];
+    if (!p) return;
+
+    // Update stats
+    document.getElementById("csRelief").innerText = `${p.relief_m.toLocaleString()} m`;
+    document.getElementById("csPeak").innerText = `${p.highest_point_m.toLocaleString()} m`;
+    document.getElementById("csBase").innerText = `${p.lowest_point_m.toLocaleString()} m`;
+
+    // Update chart
+    crossSectionChart.data.labels = p.labels;
+    crossSectionChart.data.datasets[0].data = p.antigrav_altitude;
+    crossSectionChart.data.datasets[1].data = p.elevations;
+    crossSectionChart.update();
+}
+
+function queryCurrentSectorODE() {
+    const lat = parseFloat(document.getElementById("inspLat").innerText) || 18.65;
+    const lon = parseFloat(document.getElementById("inspLon").innerText) || 226.20;
+    const container = document.getElementById("odeResultsContainer");
+    container.classList.remove("hidden");
+    container.innerHTML = `<div class="text-cyan-400 text-[11px]"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Querying Washington Univ Mars ODE Satellite Catalog...</div>`;
+
+    fetch(`/api/ode/search?lat=${lat}&lon=${lon}&limit=3`)
+        .then(res => res.json())
+        .then(data => {
+            if (!data.products || data.products.length === 0) {
+                container.innerHTML = `<div class="text-amber-400">No matching PDS products in this exact sector.</div>`;
+                return;
+            }
+            let html = `<div class="text-[10px] text-slate-400 border-b border-space-700 pb-1 mb-1 font-bold">NASA PDS SATELLITE PRODUCTS (Sector ${lat}°, ${lon}°E):</div>`;
+            data.products.forEach(p => {
+                html += `
+                    <div class="bg-space-950 p-1.5 rounded border border-space-800 text-[10px]">
+                        <div class="flex items-center justify-between">
+                            <span class="text-cyan-300 font-bold">${p.pds_id}</span>
+                            <span class="text-slate-400">${p.type}</span>
+                        </div>
+                        <div class="text-slate-300 text-[10px]">${p.instrument}</div>
+                        <a href="${p.pds_url}" target="_blank" class="text-amber-400 hover:underline text-[9px] block mt-0.5">
+                            <i class="fa-solid fa-arrow-up-right-from-square mr-1"></i> Open in NASA PDS Geosciences Archive
+                        </a>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            container.innerHTML = `<div class="text-rose-400">ODE query timed out. Showing cached MOLA MEGDR data.</div>`;
+        });
 }

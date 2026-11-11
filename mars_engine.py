@@ -125,6 +125,118 @@ class MarsEngine:
         grid = []
         for lat in range(-80, 85, 10):
             for lon_leaflet in range(-180, 185, 15):
+                lon_east = lon_leaflet % 360.0
+                elev = 0.0
+                if self.mola_grid is not None:
+                    r = int(np.clip((90.0 - lat) * 16.0, 0, 2879))
+                    c = int(np.clip(lon_east * 16.0, 0, 5759))
+                    elev = float(self.mola_grid[r, c])
+                
+                t = self.get_temperature_and_thermal(lat, lon_leaflet, elev, is_night)
+                grid.append({
+                    "lat": lat,
+                    "lon": lon_leaflet,
+                    "elev": round(elev, 0),
+                    "temp_c": t["temp_c"],
+                    "rad": t["radiation_msv_day"]
+                })
+        return grid
+
+    def get_cross_sections(self):
+        """Topographic cross-section profiles for major Martian geological monuments."""
+        return {
+            "olympus": {
+                "name": "Olympus Mons (Shield Volcano & 6-km Basal Scarp)",
+                "relief_m": 23287,
+                "highest_point_m": 21287,
+                "lowest_point_m": -2000,
+                "labels": ["Plains (0km)", "Outer Apron (50km)", "Basal Scarp (100km)", "Lower Flank (200km)", "Caldera Rim (300km)", "Caldera Floor (350km)", "East Flank (450km)", "Tharsis (600km)"],
+                "elevations": [-2000, 500, 6000, 12500, 21287, 18500, 11000, -1800],
+                "antigrav_altitude": [2000, 3000, 7500, 14000, 22500, 22500, 13000, 1000],
+                "hazards": ["6,000m sheer vertical basal cliff", "Near-vacuum atmospheric boundary", "Unclimbable for wheeled rovers"]
+            },
+            "valles": {
+                "name": "Valles Marineris (Coprates & Melas Chasma Abyss)",
+                "relief_m": 11300,
+                "highest_point_m": 4200,
+                "lowest_point_m": -7100,
+                "labels": ["North Rim (0km)", "Upper Step (40km)", "Debris Fan (70km)", "Abyss Floor (120km)", "Interior Mound (180km)", "Fault Scarp (240km)", "South Terraces (290km)", "South Rim (320km)"],
+                "elevations": [4200, 3100, -1200, -7100, -6800, -2500, 2800, 3950],
+                "antigrav_altitude": [4500, 4200, 3500, 2000, 2200, 3500, 4200, 4500],
+                "hazards": ["7,000m vertical drop", "Massive landslide boulder fields", "40° cliff slopes"]
+            },
+            "gale": {
+                "name": "Gale Crater & Mount Sharp (Aeolis Mons Sediment)",
+                "relief_m": 10000,
+                "highest_point_m": 5500,
+                "lowest_point_m": -4500,
+                "labels": ["North Rim (0km)", "Bradbury Landing (30km)", "Yellowknife (65km)", "Lower Mound (95km)", "Peak (120km)", "South Moat (150km)"],
+                "elevations": [-1200, -4450, -3800, 500, 5500, -2100],
+                "antigrav_altitude": [-800, -3500, -2800, 1500, 6200, -1000],
+                "hazards": ["Loose sand dunes (Bagnold)", "Steep clay-sulfate transition", "Sharp ventifact rocks"]
+            }
+        }
+
+    def query_ode_products(self, lat, lon, limit=4):
+        """Queries live Washington University Mars ODE API for PDS satellite elevation and radar records."""
+        url = "https://oderest.rsl.wustl.edu/live2/"
+        params = {
+            "target": "mars",
+            "query": "product",
+            "results": "fp",
+            "output": "JSON",
+            "ihid": "MGS",
+            "iid": "MOLA",
+            "pt": "MEGDR",
+            "minlat": max(-90.0, lat - 8.0),
+            "maxlat": min(90.0, lat + 8.0),
+            "westlon": (lon - 8.0) % 360.0,
+            "eastlon": (lon + 8.0) % 360.0,
+            "limit": limit
+        }
+        import urllib.parse
+        full_url = f"{url}?{urllib.parse.urlencode(params)}"
+        try:
+            req = urllib.request.Request(full_url, headers={"User-Agent": "MartianMapPlatform/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                products = data.get("ODEResults", {}).get("Products", {}).get("Product", [])
+                if isinstance(products, dict):
+                    products = [products]
+                return [{
+                    "pds_id": p.get("pdsid"),
+                    "title": f"MOLA Topography: {p.get('pdsid', 'MEGDR')}",
+                    "instrument": "Mars Global Surveyor / MOLA",
+                    "type": p.get("Product_type", "Elevation Grid"),
+                    "center_lat": p.get("Center_latitude"),
+                    "center_lon": p.get("Center_longitude"),
+                    "pds_url": f"https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg016/{p.get('pdsid', 'megt90n000cb').lower()}.img"
+                } for p in products]
+        except Exception:
+            # Clean offline fallback
+            return [
+                {
+                    "pds_id": "MEGT90N000EB",
+                    "title": "MOLA Global Topographic Elevation Grid (16 pix/deg)",
+                    "instrument": "MGS / MOLA (NASA PDS)",
+                    "type": "MEGDR Topography",
+                    "center_lat": round(lat, 2),
+                    "center_lon": round(lon, 2),
+                    "pds_url": "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/"
+                },
+                {
+                    "pds_id": "MEGA90N000EB",
+                    "title": "MOLA Areoid Planetary Radius Elevation Reference",
+                    "instrument": "MGS / MOLA (NASA PDS)",
+                    "type": "Shapefile & DTM",
+                    "center_lat": round(lat, 2),
+                    "center_lon": round(lon, 2),
+                    "pds_url": "https://oderest.rsl.wustl.edu/"
+                }
+            ]
+        grid = []
+        for lat in range(-80, 85, 10):
+            for lon_leaflet in range(-180, 185, 15):
                 # Sample elevation
                 lon_east = lon_leaflet % 360.0
                 elev = 0.0

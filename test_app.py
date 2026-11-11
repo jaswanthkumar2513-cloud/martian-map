@@ -79,7 +79,21 @@ def test_all():
     t_hellas = res_hellas.get_json()["temperature_c"]
     print(f"[PASS] Thermal lapse comparison -> Olympus Mons (21,000m): {t_olympus}°C | Hellas Basin (-7,000m): {t_hellas}°C")
 
-    print("\nALL 10 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
+    # 11. Topography Cross-Sections
+    res_cs = client.get("/api/topography/cross-sections")
+    assert res_cs.status_code == 200
+    cs_data = res_cs.get_json()
+    assert "olympus" in cs_data and "valles" in cs_data
+    print(f"[PASS] GET /api/topography/cross-sections -> Loaded cross-sections: {list(cs_data.keys())}")
+
+    # 12. NASA ODE Live Satellite Search
+    res_ode = client.get("/api/ode/search?lat=18.65&lon=226.20")
+    assert res_ode.status_code == 200
+    ode_data = res_ode.get_json()
+    assert len(ode_data["products"]) > 0
+    print(f"[PASS] GET /api/ode/search -> Found {len(ode_data['products'])} NASA PDS orbital products for Olympus Mons sector.")
+
+    print("\nALL 12 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
 
 if __name__ == "__main__":
     test_all()

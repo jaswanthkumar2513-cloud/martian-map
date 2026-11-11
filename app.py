@@ -171,6 +171,20 @@ def run_physics_sim():
     sim = engine.simulate_physics(mass, height, dist, geff)
     return jsonify(sim)
 
+@app.route("/api/topography/cross-sections")
+def get_topography_cross_sections():
+    """Returns detailed elevation profile cross-sections for major Martian geological features."""
+    return jsonify(engine.get_cross_sections())
+
+@app.route("/api/ode/search")
+def search_ode_satellite_products():
+    """Queries live Washington University ODE API for NASA satellite elevation and radar records."""
+    lat = float(request.args.get("lat", 18.65))
+    lon = float(request.args.get("lon", 226.20))
+    limit = int(request.args.get("limit", 4))
+    products = engine.query_ode_products(lat, lon, limit)
+    return jsonify({"sector_lat": lat, "sector_lon": lon, "products": products})
+
 if __name__ == "__main__":
     print("\n=======================================================")
     print("  NASA Space Apps: Interplanetary Survival Guide Map   ")

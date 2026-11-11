@@ -282,6 +282,38 @@
                     <div id="routeObstacleNote" class="text-[11px] text-slate-300 italic bg-space-900/60 p-2 rounded border border-space-700/50">
                         Crater rim escarpment with 22° slopes and boulder fields bypassed via 280 km direct glide corridor.
                     </div>
+
+                    <!-- Topographic Cross-Section & Elevation Slicer (MOLA / ODE) -->
+                    <div class="pt-2 border-t border-space-800 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] uppercase font-bold text-slate-300 font-mono flex items-center space-x-1">
+                                <i class="fa-solid fa-chart-area text-amber-400"></i>
+                                <span>MOLA Topographic Cross-Section:</span>
+                            </span>
+                            <div class="flex items-center space-x-1 text-[10px]">
+                                <button onclick="selectProfile('olympus')" class="px-1.5 py-0.5 rounded bg-space-800 hover:bg-space-700 text-slate-300 font-mono">Olympus</button>
+                                <button onclick="selectProfile('valles')" class="px-1.5 py-0.5 rounded bg-space-800 hover:bg-space-700 text-slate-300 font-mono">Valles</button>
+                                <button onclick="selectProfile('gale')" class="px-1.5 py-0.5 rounded bg-space-800 hover:bg-space-700 text-slate-300 font-mono">Gale</button>
+                            </div>
+                        </div>
+
+                        <!-- Elevation Profile Chart Container -->
+                        <div class="bg-space-900 p-2 rounded border border-space-700">
+                            <canvas id="chartElevationCrossSection" class="w-full h-32"></canvas>
+                        </div>
+                        <div id="crossSectionStats" class="flex items-center justify-between text-[10px] font-mono text-slate-400 px-1">
+                            <span>Relief: <strong id="csRelief" class="text-amber-400">23,287 m</strong></span>
+                            <span>Peak: <strong id="csPeak" class="text-cyan-300">21,287 m</strong></span>
+                            <span>Base: <strong id="csBase" class="text-rose-400">-2,000 m</strong></span>
+                        </div>
+
+                        <!-- NASA ODE Live Product Search Trigger -->
+                        <button onclick="queryCurrentSectorODE()" class="w-full bg-space-800 hover:bg-cyan-950/60 hover:border-cyan-500 border border-space-700 text-cyan-300 text-[11px] font-mono py-1.5 rounded flex items-center justify-center space-x-2 transition-all">
+                            <i class="fa-solid fa-satellite-dish text-cyan-400"></i>
+                            <span>Query NASA ODE Satellite Datasets (Washington Univ)</span>
+                        </button>
+                        <div id="odeResultsContainer" class="hidden text-xs bg-space-900/90 p-2.5 rounded border border-cyan-500/30 space-y-1.5 font-mono"></div>
+                    </div>
                 </div>
 
                 <!-- 2. Gravity-Manipulation Zones (GMZs) -->
