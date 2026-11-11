@@ -130,11 +130,28 @@ def get_custom_route():
 
 @app.route("/api/elevation/query")
 def query_elevation():
-    """Queries MOLA topography, slope, and atmospheric pressure at given coordinate."""
+    """Queries MOLA topography, slope, atmospheric pressure, temperature, and radiation at given coordinate."""
     lat = float(request.args.get("lat", 0.0))
     lon = float(request.args.get("lon", 0.0))
+    is_night = request.args.get("is_night", "false").lower() == "true"
     res = engine.get_elevation_and_slope(lat, lon)
+    if is_night:
+        thermal_night = engine.get_temperature_and_thermal(lat, lon, res["elevation_m"], is_night=True)
+        res["temperature_c"] = thermal_night["temp_c"]
+        res["temperature_k"] = thermal_night["temp_k"]
+        res["thermal_zone"] = thermal_night["thermal_zone"]
+        res["suit_heating_watts"] = thermal_night["suit_heating_watts"]
     return jsonify(res)
+
+@app.route("/api/thermal/grid")
+def get_thermal_grid():
+    """Generates global Martian thermal temperature grid for heatmap overlay."""
+    is_night = request.args.get("is_night", "false").lower() == "true"
+    grid = engine.generate_global_thermal_grid(is_night=is_night)
+    return jsonify({
+        "diurnal_cycle": "Nighttime" if is_night else "Daytime (Solar Noon)",
+        "grid_points": grid
+    })
 
 @app.route("/api/physics-sim", methods=["GET", "POST"])
 def run_physics_sim():

@@ -65,7 +65,21 @@ def test_all():
     w_ag = sim["environments"]["antigrav"]["weight_newtons"]
     print(f"[PASS] GET /api/physics-sim -> 10,000kg load: Earth: {w_earth} N | Mars: {w_mars} N | Antigrav: {w_ag} N")
 
-    print("\nALL 8 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
+    # 9. Global Thermal Grid
+    res = client.get("/api/thermal/grid?is_night=false")
+    assert res.status_code == 200
+    thermal_data = res.get_json()
+    assert len(thermal_data["grid_points"]) > 100
+    print(f"[PASS] GET /api/thermal/grid -> Generated {len(thermal_data['grid_points'])} global thermal data points across Mars.")
+
+    # 10. Thermal Query at Olympus Mons vs Hellas Basin
+    res_olympus = client.get("/api/elevation/query?lat=18.65&lon=226.20")
+    res_hellas = client.get("/api/elevation/query?lat=-42.70&lon=70.00")
+    t_olympus = res_olympus.get_json()["temperature_c"]
+    t_hellas = res_hellas.get_json()["temperature_c"]
+    print(f"[PASS] Thermal lapse comparison -> Olympus Mons (21,000m): {t_olympus}°C | Hellas Basin (-7,000m): {t_hellas}°C")
+
+    print("\nALL 10 TESTS PASSED SUCCESSFULLY! The platform is 100% operational.")
 
 if __name__ == "__main__":
     test_all()

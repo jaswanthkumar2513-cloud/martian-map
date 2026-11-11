@@ -169,14 +169,25 @@
                     <input type="checkbox" id="layerHiRISE" checked onchange="toggleMapLayer('hirise')" class="rounded border-space-600 text-emerald-500 focus:ring-0">
                     <span class="flex items-center space-x-1"><i class="fa-solid fa-camera text-emerald-400 text-[10px]"></i><span>HiRISE (4.2GB)</span></span>
                 </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerThermal" onchange="toggleMapLayer('thermal')" class="rounded border-space-600 text-rose-500 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-temperature-half text-rose-400 text-[10px]"></i><span>Thermal Map</span></span>
+                </label>
+                <div class="h-4 w-px bg-space-700"></div>
+                <button id="btnDiurnal" onclick="toggleDiurnalCycle()" title="Toggle Martian Solar Noon vs Polar Night Diurnal Cycle" class="px-2 py-0.5 rounded bg-space-800 border border-amber-500/50 text-[10px] text-amber-300 font-mono flex items-center space-x-1 hover:bg-space-700">
+                    <i id="iconDiurnal" class="fa-solid fa-sun text-amber-400 text-[10px]"></i>
+                    <span id="lblDiurnal">Solar Noon</span>
+                </button>
             </div>
 
-            <!-- Coordinate & MOLA Real-Time Inspection HUD -->
-            <div id="cursorInspector" class="bg-space-950/85 backdrop-blur-md border border-cyan-500/40 rounded-md px-3 py-1.5 shadow-lg text-[11px] font-mono flex items-center space-x-4">
+            <!-- Coordinate, MOLA, Thermal & Radiation Real-Time Inspection HUD -->
+            <div id="cursorInspector" class="bg-space-950/90 backdrop-blur-md border border-cyan-500/40 rounded-md px-3 py-1.5 shadow-lg text-[11px] font-mono flex items-center space-x-3.5 flex-wrap">
                 <div><span class="text-slate-400">Lat:</span> <span id="inspLat" class="text-cyan-300 font-bold">18.38°</span></div>
                 <div><span class="text-slate-400">Lon:</span> <span id="inspLon" class="text-cyan-300 font-bold">77.58°E</span></div>
                 <div><span class="text-slate-400">Elevation:</span> <span id="inspElev" class="text-amber-400 font-bold">-2,628 m</span></div>
                 <div><span class="text-slate-400">Slope:</span> <span id="inspSlope" class="text-emerald-400 font-bold">0.4° (Safe)</span></div>
+                <div><span class="text-slate-400">Surface Temp:</span> <span id="inspTemp" class="text-rose-400 font-bold">-63.5°C</span></div>
+                <div><span class="text-slate-400">Cosmic Rad:</span> <span id="inspRad" class="text-purple-400 font-bold">0.62 mSv/d</span></div>
             </div>
         </div>
 
@@ -309,6 +320,50 @@
                     </div>
                 </div>
 
+                <!-- 4. Thermal, Environmental & Radiation Console -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-temperature-arrow-down text-rose-400"></i>
+                            <span>Thermal & Radiation Life Support</span>
+                        </h3>
+                        <span id="badgeThermalZone" class="text-[10px] text-rose-300 bg-rose-950/80 px-2 py-0.5 rounded font-mono">SUB-ZERO NOMINAL</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div class="bg-space-900 p-2 rounded border border-space-700">
+                            <span class="text-[10px] text-slate-400 block">CURRENT AMBIENT</span>
+                            <span id="opsTempDisplay" class="text-rose-400 font-bold text-sm">-63.5°C (209.6 K)</span>
+                            <span class="text-[10px] text-slate-500 block mt-0.5">Lapse: -4.5 K / 1,000m</span>
+                        </div>
+                        <div class="bg-space-900 p-2 rounded border border-space-700">
+                            <span class="text-[10px] text-slate-400 block">EVA SUIT HEATING</span>
+                            <span id="opsSuitWatts" class="text-amber-300 font-bold text-sm">317 Watts</span>
+                            <span class="text-[10px] text-slate-500 block mt-0.5">Battery: ~6.5 hrs</span>
+                        </div>
+                    </div>
+
+                    <!-- Radiation Shielding Comparison -->
+                    <div class="bg-space-900 p-2.5 rounded border border-purple-500/30 space-y-1.5 text-xs font-mono">
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span class="text-slate-300"><i class="fa-solid fa-shield-halved text-purple-400 mr-1"></i> Cosmic Radiation:</span>
+                            <span class="text-purple-300 font-bold" id="opsRadLevel">0.65 mSv / day</span>
+                        </div>
+                        <div class="w-full bg-space-800 rounded-full h-1.5 overflow-hidden">
+                            <div id="barRadiation" class="bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 h-1.5 rounded-full" style="width: 65%;"></div>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                            <span>GMZ Field: <strong class="text-emerald-400">0.05 mSv/d (-92%)</strong></span>
+                            <span>Unshielded Surface: <strong class="text-amber-400">0.65 mSv/d</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-[10px] font-mono bg-space-900/60 p-2 rounded border border-space-700/60">
+                        <span class="text-slate-400">Atmospheric Dust Optical Depth:</span>
+                        <span class="text-cyan-400 font-bold">τ = 0.42 (Clear Visibility)</span>
+                    </div>
+                </div>
+
             </div>
         </aside>
 
@@ -437,7 +492,34 @@
                     </div>
                 </div>
 
-                <!-- 3. Student Space Quiz Challenge -->
+                <!-- 3. Thermal & Planetary Atmosphere Science Module -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-2.5">
+                    <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                        <i class="fa-solid fa-temperature-full text-rose-400"></i>
+                        <span>Martian Climate & Thermodynamics Lab</span>
+                    </h3>
+                    <p class="text-[11px] text-slate-300">
+                        Why does Mars have such extreme temperature drops compared to Earth?
+                    </p>
+                    <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div class="bg-space-900 p-2 rounded border border-rose-500/30">
+                            <span class="text-[10px] text-slate-400 block uppercase">Equatorial Summer Noon</span>
+                            <span class="text-rose-400 font-bold text-sm">+20°C (293 K)</span>
+                            <span class="text-[10px] text-slate-400 block mt-0.5">T-shirt weather (briefly!)</span>
+                        </div>
+                        <div class="bg-space-900 p-2 rounded border border-cyan-500/30">
+                            <span class="text-[10px] text-slate-400 block uppercase">Winter Polar Midnight</span>
+                            <span class="text-cyan-300 font-bold text-sm">-140°C (133 K)</span>
+                            <span class="text-[10px] text-slate-400 block mt-0.5">CO2 freezes into dry ice</span>
+                        </div>
+                    </div>
+                    <div class="text-[11px] text-slate-300 leading-relaxed bg-space-900/60 p-2.5 rounded border border-space-800 space-y-1">
+                        <div><strong class="text-amber-300">1. Atmospheric Density:</strong> Mars air is 100x thinner than Earth's (0.006 bar), creating virtually zero heat retention (greenhouse warming is only +5 K vs Earth's +33 K).</div>
+                        <div><strong class="text-cyan-300">2. Adiabatic Lapse Rate:</strong> For every 1,000 meters you climb (e.g. Olympus Mons), temperature drops by ~4.5 K.</div>
+                    </div>
+                </div>
+
+                <!-- 4. Student Space Quiz Challenge -->
                 <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-2.5">
                     <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
                         <i class="fa-solid fa-circle-question text-amber-400"></i>

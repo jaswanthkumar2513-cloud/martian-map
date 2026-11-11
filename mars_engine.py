@@ -48,12 +48,100 @@ class MarsEngine:
         slope = float(self.slope_grid[r, c])
         pressure = float(P0 * np.exp(-elevation / SCALE_HEIGHT))
 
+        # Thermal and Radiation Environmental Modeling
+        thermal = self.get_temperature_and_thermal(lat, lon_leaflet, elevation)
+
         return {
             "elevation_m": round(elevation, 1),
             "slope_deg": round(slope, 2),
             "pressure_pa": round(pressure, 1),
-            "pressure_mbar": round(pressure / 100.0, 2)
+            "pressure_mbar": round(pressure / 100.0, 2),
+            "temperature_c": thermal["temp_c"],
+            "temperature_k": thermal["temp_k"],
+            "thermal_zone": thermal["thermal_zone"],
+            "radiation_msv_day": thermal["radiation_msv_day"],
+            "suit_heating_watts": thermal["suit_heating_watts"]
         }
+
+    def get_temperature_and_thermal(self, lat, lon_leaflet, elevation_m=0.0, is_night=False):
+        """
+        Martian thermodynamic and thermal environment model:
+        - Latitudinal insolation gradient (Warmest at equator, cryogenic at poles)
+        - Altitude lapse rate (~ -4.5 K per 1,000 meters elevation)
+        - Diurnal Day/Night cycle swing (~60°C to 80°C delta)
+        - Cosmic and solar particle radiation dose vs. atmospheric shielding depth
+        """
+        lat_rad = np.radians(lat)
+        
+        # 1. Base insolation temperature
+        # Equator solar noon: ~ +15°C to +20°C in summer, drops to -130°C at poles
+        if not is_night:
+            base_temp_c = 18.0 * np.cos(lat_rad) - 75.0 * (np.sin(lat_rad)**2)
+        else:
+            # Nighttime radiative cooling through thin CO2 atmosphere
+            base_temp_c = -72.0 * np.cos(lat_rad) - 65.0 * (np.sin(lat_rad)**2)
+
+        # 2. Martian Atmospheric Lapse Rate: -4.5 K per 1,000 m (relative to datum)
+        lapse_rate_k_per_m = 0.0045
+        elevation_temp_delta = -elevation_m * lapse_rate_k_per_m
+        temp_c = round(float(base_temp_c + elevation_temp_delta), 1)
+
+        # Hard physical floor: CO2 sublimation/freezing point on Mars is ~ -125°C (148 K)
+        temp_c = max(-138.0, min(24.0, temp_c))
+        temp_k = round(temp_c + 273.15, 1)
+
+        # Thermal classification
+        if temp_c > 0.0:
+            thermal_zone = "Temperate Daytime (Liquid Water Possible Brief)"
+        elif temp_c > -40.0:
+            thermal_zone = "Moderate Sub-Zero (Nominal Rover Operation)"
+        elif temp_c > -80.0:
+            thermal_zone = "Severe Cold (Battery Pre-Heating Required)"
+        else:
+            thermal_zone = "Cryogenic Extreme (Dry Ice CO2 Frost Zone)"
+
+        # 3. Radiation Exposure Model
+        # Base Mars surface radiation: ~0.65 mSv/day (GCR + Solar particles)
+        # Thicker atmosphere at low elevations provides shielding (e.g. Hellas Basin)
+        # Thin air at Olympus Mons leaves astronaut unprotected
+        density_shielding_factor = np.exp(-elevation_m / 11100.0)
+        surface_rad = 0.65 * (2.0 - min(1.3, density_shielding_factor))
+        surface_rad = max(0.45, min(0.98, surface_rad))
+
+        # 4. Thermal Suit Heating Power
+        # Standard astronaut EVA suit delta-T heating: Q = U * A * (T_suit - T_ambient)
+        suit_watts = int(max(80, (20.0 - temp_c) * 3.8))
+
+        return {
+            "temp_c": temp_c,
+            "temp_k": temp_k,
+            "thermal_zone": thermal_zone,
+            "radiation_msv_day": round(float(surface_rad), 3),
+            "suit_heating_watts": suit_watts
+        }
+
+    def generate_global_thermal_grid(self, is_night=False):
+        """Generates a coarse global grid of Martian surface temperatures for Leaflet thermal heatmap."""
+        grid = []
+        for lat in range(-80, 85, 10):
+            for lon_leaflet in range(-180, 185, 15):
+                # Sample elevation
+                lon_east = lon_leaflet % 360.0
+                elev = 0.0
+                if self.mola_grid is not None:
+                    r = int(np.clip((90.0 - lat) * 16.0, 0, 2879))
+                    c = int(np.clip(lon_east * 16.0, 0, 5759))
+                    elev = float(self.mola_grid[r, c])
+                
+                t = self.get_temperature_and_thermal(lat, lon_leaflet, elev, is_night)
+                grid.append({
+                    "lat": lat,
+                    "lon": lon_leaflet,
+                    "elev": round(elev, 0),
+                    "temp_c": t["temp_c"],
+                    "rad": t["radiation_msv_day"]
+                })
+        return grid
 
     def compute_great_circle_distance(self, lat1, lon1, lat2, lon2):
         """Haversine distance on Mars sphere in kilometers."""

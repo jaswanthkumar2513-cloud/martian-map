@@ -9,13 +9,15 @@ let layerGroups = {
     outposts: L.layerGroup(),
     gmz: L.layerGroup(),
     routes: L.layerGroup(),
-    hirise: L.layerGroup()
+    hirise: L.layerGroup(),
+    thermal: L.layerGroup()
 };
 
 let cachedRoutes = [];
 let cachedGMZs = [];
 let currentRouteIndex = 0;
 let gravityChart = null;
+let isNightMode = false;
 
 // Initialize when DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
@@ -24,6 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadGMZs();
     loadPresetRoutes();
     loadHiRISEData();
+    loadThermalMap();
     initPhysicsSimulator();
 });
 
@@ -89,8 +92,8 @@ function initMap() {
             document.getElementById("inspLat").innerText = `${lat}°`;
             document.getElementById("inspLon").innerText = `${lon >= 0 ? lon : (360 + parseFloat(lon)).toFixed(2)}°E`;
 
-            // Query MOLA elevation at cursor
-            fetch(`/api/elevation/query?lat=${lat}&lon=${lon}`)
+            // Query MOLA elevation, slope, thermal and radiation at cursor
+            fetch(`/api/elevation/query?lat=${lat}&lon=${lon}&is_night=${isNightMode}`)
                 .then(res => res.json())
                 .then(data => {
                     document.getElementById("inspElev").innerText = `${data.elevation_m.toLocaleString()} m`;
@@ -107,6 +110,27 @@ function initMap() {
                     const el = document.getElementById("inspSlope");
                     el.className = `${slopeColor} font-bold`;
                     el.innerText = `${slope}° (${slopeStatus})`;
+
+                    // Update Thermal and Radiation in HUD
+                    if (data.temperature_c !== undefined) {
+                        const tempEl = document.getElementById("inspTemp");
+                        if (tempEl) {
+                            tempEl.innerText = `${data.temperature_c}°C`;
+                            tempEl.className = data.temperature_c > -30 ? "text-amber-400 font-bold" : (data.temperature_c > -70 ? "text-rose-400 font-bold" : "text-cyan-300 font-bold");
+                        }
+                        const radEl = document.getElementById("inspRad");
+                        if (radEl) radEl.innerText = `${data.radiation_msv_day} mSv/d`;
+
+                        // Update Astronaut Operations Console
+                        const opsTemp = document.getElementById("opsTempDisplay");
+                        if (opsTemp) opsTemp.innerText = `${data.temperature_c}°C (${data.temperature_k} K)`;
+                        const opsSuit = document.getElementById("opsSuitWatts");
+                        if (opsSuit) opsSuit.innerText = `${data.suit_heating_watts} Watts`;
+                        const opsRad = document.getElementById("opsRadLevel");
+                        if (opsRad) opsRad.innerText = `${data.radiation_msv_day} mSv / day`;
+                        const badgeZone = document.getElementById("badgeThermalZone");
+                        if (badgeZone && data.thermal_zone) badgeZone.innerText = data.thermal_zone.toUpperCase();
+                    }
                 })
                 .catch(() => {});
         }, 120);
@@ -118,9 +142,64 @@ function toggleMapLayer(layerName) {
     const isChecked = document.getElementById(`layer${layerName.charAt(0).toUpperCase() + layerName.slice(1)}`).checked;
     if (isChecked) {
         map.addLayer(layerGroups[layerName]);
+        if (layerName === "thermal" && layerGroups.thermal.getLayers().length === 0) {
+            loadThermalMap();
+        }
     } else {
         map.removeLayer(layerGroups[layerName]);
     }
+}
+
+// Global Thermal Map Loader
+function loadThermalMap() {
+    fetch(`/api/thermal/grid?is_night=${isNightMode}`)
+        .then(res => res.json())
+        .then(data => {
+            layerGroups.thermal.clearLayers();
+            data.grid_points.forEach(pt => {
+                const t = pt.temp_c;
+                let color = "#38bdf8"; // Arctic ice blue
+                if (t > 0) color = "#ef4444"; // Warm red
+                else if (t > -30) color = "#f97316"; // Orange
+                else if (t > -60) color = "#c084fc"; // Violet
+                else if (t > -90) color = "#06b6d4"; // Cyan
+
+                const circle = L.circle([pt.lat, pt.lon], {
+                    radius: 380000,
+                    color: "transparent",
+                    fillColor: color,
+                    fillOpacity: isNightMode ? 0.35 : 0.28,
+                    interactive: true
+                }).addTo(layerGroups.thermal);
+
+                circle.bindTooltip(`
+                    <div class="font-mono text-xs p-1 bg-space-950 text-slate-100 rounded border border-space-700">
+                        <span class="font-bold block" style="color:${color}">Surface Temp: ${t}°C (${(t + 273.15).toFixed(1)} K)</span>
+                        <span class="text-slate-300 text-[10px]">Elevation: ${pt.elev.toLocaleString()} m</span><br>
+                        <span class="text-purple-300 text-[10px]">Cosmic Rad: ${pt.rad} mSv/day</span>
+                    </div>
+                `, { sticky: true });
+            });
+        })
+        .catch(err => console.log("Thermal grid error:", err));
+}
+
+// Diurnal Day/Night Cycle Switcher
+function toggleDiurnalCycle() {
+    isNightMode = !isNightMode;
+    const lbl = document.getElementById("lblDiurnal");
+    const icon = document.getElementById("iconDiurnal");
+    const btn = document.getElementById("btnDiurnal");
+    if (isNightMode) {
+        lbl.innerText = "Polar Night";
+        icon.className = "fa-solid fa-moon text-cyan-400 text-[10px]";
+        btn.className = "px-2 py-0.5 rounded bg-space-800 border border-cyan-500/50 text-[10px] text-cyan-300 font-mono flex items-center space-x-1 hover:bg-space-700";
+    } else {
+        lbl.innerText = "Solar Noon";
+        icon.className = "fa-solid fa-sun text-amber-400 text-[10px]";
+        btn.className = "px-2 py-0.5 rounded bg-space-800 border border-amber-500/50 text-[10px] text-amber-300 font-mono flex items-center space-x-1 hover:bg-space-700";
+    }
+    loadThermalMap();
 }
 
 // ==============================================================
