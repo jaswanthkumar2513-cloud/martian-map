@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interplanetary Survival Guide: Martian Map | NASA Space Apps</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        space: {
+                            950: '#050811',
+                            900: '#0a0f1d',
+                            800: '#111b33',
+                            700: '#1b294d',
+                            600: '#283c6e'
+                        },
+                        antigrav: {
+                            DEFAULT: '#00f0ff',
+                            glow: 'rgba(0, 240, 255, 0.4)',
+                            dim: '#0891b2'
+                        },
+                        gmz: {
+                            DEFAULT: '#c084fc',
+                            glow: 'rgba(192, 132, 252, 0.35)',
+                            dim: '#7e22ce'
+                        },
+                        mars: {
+                            DEFAULT: '#ff5722',
+                            light: '#ff8a65',
+                            dark: '#bf360c'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <style>
+        /* Custom map glow effects */
+        .leaflet-container {
+            background-color: #050811 !important;
+            font-family: inherit;
+        }
+        .pulse-gmz {
+            animation: pulse-ring 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0a0f1d;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1b294d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f0ff;
+        }
+    </style>
+</head>
+<body class="bg-space-950 text-slate-100 flex flex-col h-screen overflow-hidden select-none">
+
+    <!-- Top Mission Control Navigation Bar -->
+    <header class="bg-space-900 border-b border-space-700/80 px-4 py-2.5 flex items-center justify-between shrink-0 shadow-lg z-20">
+        <!-- Logo and Project Info -->
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-mars to-antigrav flex items-center justify-center shadow-lg shadow-antigrav/20 ring-1 ring-cyan-400/40">
+                <i class="fa-solid fa-shuttle-space text-white text-lg"></i>
+            </div>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <h1 class="text-sm font-bold tracking-wider uppercase text-cyan-300 font-mono">
+                        Interplanetary Survival Guide: Martian Map
+                    </h1>
+                    <span class="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-space-800 border border-cyan-500/30 text-cyan-400">
+                        NASA Space Apps Challenge
+                    </span>
+                </div>
+                <p class="text-xs text-slate-400 flex items-center space-x-2">
+                    <span>MOLA Topography</span>
+                    <span class="text-slate-600">•</span>
+                    <span>HiRISE 4.2GB Imagery</span>
+                    <span class="text-slate-600">•</span>
+                    <span class="text-antigrav font-semibold">Theoretical Antigravity Propulsion Grid</span>
+                </p>
+            </div>
+        </div>
+
+        <!-- Center: Dual Mode Switcher -->
+        <div class="flex items-center bg-space-950 p-1 rounded-lg border border-space-700">
+            <button id="btnModeOps" onclick="switchMode('ops')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 shadow-sm shadow-cyan-500/20">
+                <i class="fa-solid fa-satellite-dish text-xs"></i>
+                <span>Astronaut Operations</span>
+            </button>
+            <button id="btnModeEdu" onclick="switchMode('edu')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-slate-200">
+                <i class="fa-solid fa-graduation-cap text-xs"></i>
+                <span>Student Research Lab</span>
+            </button>
+        </div>
+
+        <!-- Right: Real-time Telemetry Bar -->
+        <div class="hidden lg:flex items-center space-x-4 text-xs font-mono">
+            <div class="bg-space-950/80 px-2.5 py-1 rounded border border-space-700/60 flex items-center space-x-2">
+                <span class="text-slate-400 text-[10px] uppercase">Sol:</span>
+                <span id="telemetrySol" class="text-amber-400 font-bold">842</span>
+            </div>
+            <div class="bg-space-950/80 px-2.5 py-1 rounded border border-space-700/60 flex items-center space-x-2">
+                <span class="text-slate-400 text-[10px] uppercase">Solar Ls:</span>
+                <span class="text-slate-200">142.6°</span>
+            </div>
+            <div class="bg-space-950/80 px-2.5 py-1 rounded border border-space-700/60 flex items-center space-x-2">
+                <span class="text-slate-400 text-[10px] uppercase">Temp:</span>
+                <span class="text-cyan-400">-63.5°C</span>
+            </div>
+            <div class="bg-space-950/80 px-2.5 py-1 rounded border border-space-700/60 flex items-center space-x-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="text-emerald-400 font-semibold text-[10px]">AG-GRID ONLINE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- Map Controls Floating Overlay (Top-Left on Map) -->
+        <div class="absolute top-3 left-14 z-[1000] flex flex-col space-y-2 pointer-events-auto">
+            <!-- Layer Toggles Dropdown / Bar -->
+            <div class="bg-space-900/90 backdrop-blur-md border border-space-700 rounded-lg p-2 shadow-xl flex items-center space-x-3 text-xs">
+                <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold px-1">Layers:</span>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerOutposts" checked onchange="toggleMapLayer('outposts')" class="rounded border-space-600 text-cyan-500 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-flag text-amber-400 text-[10px]"></i><span>Bases</span></span>
+                </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerGMZ" checked onchange="toggleMapLayer('gmz')" class="rounded border-space-600 text-purple-500 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-atom text-purple-400 text-[10px]"></i><span>GMZ Fields</span></span>
+                </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerRoutes" checked onchange="toggleMapLayer('routes')" class="rounded border-space-600 text-cyan-500 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-route text-cyan-400 text-[10px]"></i><span>Antigrav Routes</span></span>
+                </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white">
+                    <input type="checkbox" id="layerHiRISE" checked onchange="toggleMapLayer('hirise')" class="rounded border-space-600 text-emerald-500 focus:ring-0">
+                    <span class="flex items-center space-x-1"><i class="fa-solid fa-camera text-emerald-400 text-[10px]"></i><span>HiRISE (4.2GB)</span></span>
+                </label>
+            </div>
+
+            <!-- Coordinate & MOLA Real-Time Inspection HUD -->
+            <div id="cursorInspector" class="bg-space-950/85 backdrop-blur-md border border-cyan-500/40 rounded-md px-3 py-1.5 shadow-lg text-[11px] font-mono flex items-center space-x-4">
+                <div><span class="text-slate-400">Lat:</span> <span id="inspLat" class="text-cyan-300 font-bold">18.38°</span></div>
+                <div><span class="text-slate-400">Lon:</span> <span id="inspLon" class="text-cyan-300 font-bold">77.58°E</span></div>
+                <div><span class="text-slate-400">Elevation:</span> <span id="inspElev" class="text-amber-400 font-bold">-2,628 m</span></div>
+                <div><span class="text-slate-400">Slope:</span> <span id="inspSlope" class="text-emerald-400 font-bold">0.4° (Safe)</span></div>
+            </div>
+        </div>
+
+        <!-- The Leaflet Mars Map View -->
+        <div id="marsMap" class="flex-1 h-full w-full z-0"></div>
+
+        <!-- ============================================================== -->
+        <!-- MODE 1: ASTRONAUT OPERATIONS DASHBOARD (RIGHT PANEL)           -->
+        <!-- ============================================================== -->
+        <aside id="panelOps" class="w-[440px] bg-space-900 border-l border-space-700/80 flex flex-col h-full shadow-2xl z-10 shrink-0">
+            <!-- Panel Header -->
+            <div class="p-3 border-b border-space-700 bg-space-950/50 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-compass text-cyan-400"></i>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-cyan-300 font-mono">
+                        EVA & Logistics Operations
+                    </h2>
+                </div>
+                <span class="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded font-mono">
+                    ARES-VII COMMAND
+                </span>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                <!-- 1. Antigravity vs Wheeled Routing Corridors -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-code-fork text-cyan-400"></i>
+                            <span>Antigravity Traversal Planner</span>
+                        </h3>
+                        <span class="text-[10px] text-cyan-400 bg-cyan-900/40 px-2 py-0.5 rounded">Slope Bypass AI</span>
+                    </div>
+                    
+                    <p class="text-[11px] text-slate-400 leading-relaxed">
+                        Compare conventional wheeled rover routing against frictionless antigravity glide corridors across hazardous terrain.
+                    </p>
+
+                    <!-- Route Selector Dropdown -->
+                    <div>
+                        <label class="block text-[10px] uppercase font-mono text-slate-400 mb-1">Select Transit Mission:</label>
+                        <select id="routeSelect" onchange="onRouteSelected()" class="w-full bg-space-800 border border-space-600 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-400 font-mono">
+                            <option value="0">Jezero Delta to Isidis Rim (Escarpment Bypass)</option>
+                            <option value="1">Valles Marineris Wall Crossing (7,000m Abyss)</option>
+                            <option value="2">Olympus Mons Basal Scarp Summit Ascent</option>
+                        </select>
+                    </div>
+
+                    <!-- Comparison Scorecards -->
+                    <div class="grid grid-cols-2 gap-2 text-center text-xs font-mono pt-1">
+                        <!-- Wheeled Rover -->
+                        <div class="bg-space-900/90 border border-mars/40 rounded p-2 text-left">
+                            <div class="flex items-center justify-between text-[10px] text-mars font-bold mb-1">
+                                <span>WHEELED ROVER</span>
+                                <i class="fa-solid fa-truck-monster"></i>
+                            </div>
+                            <div class="text-[11px] text-slate-300">Distance: <span id="routeWheeledDist" class="text-white font-bold">785.4 km</span></div>
+                            <div class="text-[11px] text-slate-300">Est. Time: <span id="routeWheeledTime" class="text-amber-400 font-bold">523.6 hrs</span></div>
+                            <div class="text-[10px] text-slate-400 mt-1">Speed: 0.15 km/h • Max Slope: 15°</div>
+                        </div>
+
+                        <!-- Antigravity Glider -->
+                        <div class="bg-space-900/90 border border-cyan-400/50 rounded p-2 text-left shadow-sm shadow-cyan-500/10">
+                            <div class="flex items-center justify-between text-[10px] text-cyan-400 font-bold mb-1">
+                                <span>ANTIGRAV GLIDER</span>
+                                <i class="fa-solid fa-jet-fighter-up"></i>
+                            </div>
+                            <div class="text-[11px] text-slate-300">Distance: <span id="routeAgDist" class="text-cyan-300 font-bold">280.2 km</span></div>
+                            <div class="text-[11px] text-slate-300">Est. Time: <span id="routeAgTime" class="text-emerald-400 font-bold">18.6 hrs</span></div>
+                            <div class="text-[10px] text-slate-400 mt-1">Speed: 16.5 km/h • Direct Glide</div>
+                        </div>
+                    </div>
+
+                    <!-- Savings Metrics Banner -->
+                    <div class="bg-gradient-to-r from-cyan-950/60 to-purple-950/60 border border-cyan-500/30 rounded p-2.5 flex items-center justify-between text-xs font-mono">
+                        <div>
+                            <div class="text-[10px] text-slate-400 uppercase">Energy Saved</div>
+                            <div id="routeSavingsEnergy" class="text-sm font-bold text-cyan-300">88.4%</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-400 uppercase">Time Reduction</div>
+                            <div id="routeSavingsTime" class="text-sm font-bold text-emerald-400">96.4% Faster</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-400 uppercase">Field Strength</div>
+                            <div class="text-sm font-bold text-purple-300">0.05 g</div>
+                        </div>
+                    </div>
+
+                    <div id="routeObstacleNote" class="text-[11px] text-slate-300 italic bg-space-900/60 p-2 rounded border border-space-700/50">
+                        Crater rim escarpment with 22° slopes and boulder fields bypassed via 280 km direct glide corridor.
+                    </div>
+                </div>
+
+                <!-- 2. Gravity-Manipulation Zones (GMZs) -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-atom text-purple-400"></i>
+                            <span>Active GMZ Infrastructure</span>
+                        </h3>
+                        <span class="text-[10px] text-purple-400 bg-purple-900/40 px-2 py-0.5 rounded font-mono">5 ZONES</span>
+                    </div>
+
+                    <p class="text-[11px] text-slate-400">
+                        Localized fields canceling up to 95% of Martian gravity for heavy habitat construction, drilling, and vertical escarpment transit.
+                    </p>
+
+                    <!-- GMZ List -->
+                    <div id="gmzListContainer" class="space-y-2">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- 3. HiRISE Orbital Surface Inspector -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-camera text-emerald-400"></i>
+                            <span>NASA HiRISE 50cm Surface Feed</span>
+                        </h3>
+                        <span class="text-[10px] text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded font-mono">2,182 IMAGES</span>
+                    </div>
+                    <div id="hiriseInspectorCard" class="text-xs text-slate-400 space-y-2">
+                        <p class="italic text-slate-400">
+                            Click any green camera icon on the Martian map to stream the ultra-high resolution (50 cm/pixel) surface photo from your 4.2 GB archive.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- ============================================================== -->
+        <!-- MODE 2: STUDENT RESEARCH & DISCOVERY LAB (RIGHT PANEL)         -->
+        <!-- ============================================================== -->
+        <aside id="panelEdu" class="w-[440px] bg-space-900 border-l border-space-700/80 flex flex-col h-full shadow-2xl z-10 shrink-0 hidden">
+            <!-- Panel Header -->
+            <div class="p-3 border-b border-space-700 bg-space-950/50 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-flask-vial text-purple-400"></i>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-purple-300 font-mono">
+                        Student Space Research Lab
+                    </h2>
+                </div>
+                <span class="text-[10px] bg-purple-950 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-mono">
+                    PHYSICS SIMULATOR
+                </span>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                <!-- 1. Interactive Gravity Sandbox -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                            <i class="fa-solid fa-weight-hanging text-cyan-400"></i>
+                            <span>Gravity & Payload Playground</span>
+                        </h3>
+                    </div>
+
+                    <p class="text-[11px] text-slate-400">
+                        Adjust payload mass and compare how gravity manipulation radically alters the physics of Martian exploration.
+                    </p>
+
+                    <!-- Payload Mass Slider -->
+                    <div>
+                        <div class="flex items-center justify-between text-xs font-mono mb-1">
+                            <span class="text-slate-400">Payload Mass:</span>
+                            <span id="sliderMassDisplay" class="text-cyan-300 font-bold">5,000 kg</span>
+                        </div>
+                        <input type="range" id="sliderMass" min="100" max="50000" step="100" value="5000" oninput="onPhysicsChanged()" class="w-full h-1.5 bg-space-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                        
+                        <!-- Quick Presets -->
+                        <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                            <button onclick="setMass(145)" class="hover:text-cyan-400">Spacesuit (145kg)</button>
+                            <button onclick="setMass(1200)" class="hover:text-cyan-400">Rover (1.2t)</button>
+                            <button onclick="setMass(15000)" class="hover:text-cyan-400">Hab Dome (15t)</button>
+                            <button onclick="setMass(45000)" class="hover:text-cyan-400">Excavator (45t)</button>
+                        </div>
+                    </div>
+
+                    <!-- Gravity Environment 3-Way Selector -->
+                    <div class="grid grid-cols-3 gap-2 pt-2 text-center text-xs font-mono">
+                        <div id="cardEnvEarth" class="bg-space-900 border border-space-700 rounded p-2 transition-all">
+                            <div class="text-[10px] text-blue-400 font-bold">EARTH</div>
+                            <div class="text-[10px] text-slate-400">1.00 g</div>
+                            <div class="text-xs font-bold text-white mt-1" id="weightEarth">49,033 N</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Feel: <span id="feelEarth">5,000 kg</span></div>
+                        </div>
+
+                        <div id="cardEnvMars" class="bg-space-900 border border-mars/50 rounded p-2 transition-all">
+                            <div class="text-[10px] text-mars font-bold">MARS NATURAL</div>
+                            <div class="text-[10px] text-slate-400">0.38 g</div>
+                            <div class="text-xs font-bold text-amber-300 mt-1" id="weightMars">18,604 N</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Feel: <span id="feelMars">1,897 kg</span></div>
+                        </div>
+
+                        <div id="cardEnvAg" class="bg-space-900 border border-purple-500 rounded p-2 transition-all shadow-sm shadow-purple-500/20">
+                            <div class="text-[10px] text-purple-300 font-bold">ANTIGRAV FIELD</div>
+                            <div class="text-[10px] text-slate-400">0.05 g</div>
+                            <div class="text-xs font-bold text-cyan-300 mt-1" id="weightAg">2,451 N</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Feel: <span id="feelAg">250 kg</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Visual Comparison Chart -->
+                    <div class="bg-space-900 p-2 rounded border border-space-700">
+                        <canvas id="chartGravityWeight" class="w-full h-36"></canvas>
+                    </div>
+
+                    <!-- Human Capabilities on Mars Simulation -->
+                    <div class="bg-space-900/90 border border-space-700 rounded p-3 space-y-2 text-xs font-mono">
+                        <div class="text-[11px] font-bold text-slate-200 uppercase flex items-center space-x-1.5">
+                            <i class="fa-solid fa-person-running text-emerald-400"></i>
+                            <span>Astronaut Physical Performance</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-[11px]">
+                            <div>
+                                <span class="text-slate-400">Lifting Crew Needed:</span>
+                                <div class="text-white font-bold" id="crewNeeded">63 Astronauts</div>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">Max Vertical Jump:</span>
+                                <div class="text-cyan-300 font-bold" id="jumpHeight">8.00 meters</div>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">Hang Time in Air:</span>
+                                <div class="text-amber-300 font-bold" id="hangTime">11.4 seconds</div>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">Energy Savings:</span>
+                                <div class="text-emerald-400 font-bold" id="simSavings">86.8% Less Work</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Science Explainer: How Theoretical Antigravity Works -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-2.5">
+                    <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                        <i class="fa-solid fa-book-open text-purple-400"></i>
+                        <span>The Science of Antigravity (Explained)</span>
+                    </h3>
+                    <div class="text-[11px] text-slate-300 space-y-2 leading-relaxed">
+                        <div class="border-l-2 border-cyan-400 pl-2">
+                            <strong class="text-cyan-300">1. Diamagnetic Repulsion:</strong> Superconducting magnets create magnetic gradients so intense they counteract gravity directly at the atomic level (already demonstrated on Earth with small organisms).
+                        </div>
+                        <div class="border-l-2 border-purple-400 pl-2">
+                            <strong class="text-purple-300">2. Metric Contraction:</strong> In theoretical physics (Einstein's Field Equations), negative-energy vacuum states (Casimir effect) could locally alter spacetime curvature to reduce effective gravitational acceleration $g_{\text{eff}}$.
+                        </div>
+                        <div class="border-l-2 border-amber-400 pl-2">
+                            <strong class="text-amber-300">3. Martian Advantage:</strong> Because Mars only has $38\%$ of Earth's gravity to begin with, reducing effective gravity to $0.05g$ requires less than one-third the power compared to Earth!
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Student Space Quiz Challenge -->
+                <div class="bg-space-950/80 border border-space-700 rounded-lg p-3.5 space-y-2.5">
+                    <h3 class="text-xs font-bold uppercase text-slate-200 flex items-center space-x-1.5 font-mono">
+                        <i class="fa-solid fa-circle-question text-amber-400"></i>
+                        <span>Martian Survival Challenge</span>
+                    </h3>
+                    <p class="text-[11px] text-slate-300">
+                        <strong>Mission Question:</strong> Why is the Valles Marineris canyon impossible for conventional wheeled rovers to cross directly?
+                    </p>
+                    <div class="space-y-1.5 text-xs">
+                        <button onclick="checkAnswer(false)" class="w-full text-left bg-space-900 hover:bg-space-800 p-2 rounded border border-space-700 text-slate-300 text-[11px]">
+                            A) The atmospheric pressure at the bottom is too low for rubber tires.
+                        </button>
+                        <button onclick="checkAnswer(true)" class="w-full text-left bg-space-900 hover:bg-cyan-900/30 hover:border-cyan-500 p-2 rounded border border-space-700 text-slate-300 text-[11px]">
+                            B) The canyon walls feature 7,000-meter sheer vertical cliffs (slopes > 40°).
+                        </button>
+                        <button onclick="checkAnswer(false)" class="w-full text-left bg-space-900 hover:bg-space-800 p-2 rounded border border-space-700 text-slate-300 text-[11px]">
+                            C) Mars does not have magnetic poles to navigate by.
+                        </button>
+                    </div>
+                    <div id="quizFeedback" class="hidden text-xs p-2 rounded font-mono"></div>
+                </div>
+
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- HiRISE Modal Viewer (Full View) -->
+    <div id="hiriseModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] hidden flex items-center justify-center p-4">
+        <div class="bg-space-900 border border-cyan-500/50 rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div class="p-3 border-b border-space-700 bg-space-950 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-satellite text-cyan-400"></i>
+                    <h3 id="modalTitle" class="text-xs font-bold uppercase tracking-wider text-cyan-300 font-mono"></h3>
+                </div>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white px-2 py-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                <div class="relative bg-black rounded-lg overflow-hidden border border-space-700 flex items-center justify-center min-h-[300px]">
+                    <img id="modalImage" src="" alt="HiRISE Surface Observation" class="max-h-[450px] w-auto object-contain">
+                    <div id="modalLoading" class="absolute inset-0 flex items-center justify-center bg-black/60 text-cyan-300 font-mono text-xs">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> Streaming 50 cm/px Image from 4.2 GB Archive...
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono bg-space-950 p-2.5 rounded border border-space-800">
+                    <div>
+                        <span class="text-slate-500 text-[10px] block">COORDINATES</span>
+                        <span id="modalCoords" class="text-cyan-300 font-bold"></span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 text-[10px] block">ACQUISITION DATE</span>
+                        <span id="modalDate" class="text-slate-200"></span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 text-[10px] block">SPACECRAFT ALTITUDE</span>
+                        <span id="modalAltitude" class="text-amber-300"></span>
+                    </div>
+                </div>
+                <div class="bg-space-950/90 p-3 rounded border border-space-800 text-xs text-slate-300 leading-relaxed">
+                    <h4 class="text-[10px] uppercase font-bold text-slate-400 font-mono mb-1">NASA Planetary Scientist Caption:</h4>
+                    <p id="modalCaption"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
