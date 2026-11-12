@@ -82,6 +82,73 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #00f0ff;
         }
+
+        /* 3D Google Street View Style Navigational Ground Chevrons */
+        .street-view-ground-viewport {
+            perspective: 550px;
+            perspective-origin: 50% 65%;
+        }
+        .chevron-3d-plane {
+            transform: rotateX(68deg);
+            transform-style: preserve-3d;
+        }
+        .nav-chevron-btn {
+            filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.8));
+            transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .nav-chevron-btn:hover {
+            transform: scale(1.22) translateY(-10px);
+            filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.95)) brightness(1.25);
+        }
+        .nav-chevron-btn:active {
+            transform: scale(0.92) translateY(5px);
+        }
+
+        /* Directional Heading Cone & Blue Pin for Rover Marker on Leaflet */
+        .rover-marker-container {
+            position: relative;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .rover-heading-cone {
+            position: absolute;
+            top: -26px;
+            left: 4px;
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle at 50% 100%, rgba(37, 99, 235, 0.55) 0%, rgba(59, 130, 246, 0.2) 60%, transparent 80%);
+            clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
+            pointer-events: none;
+            transform-origin: 50% 100%;
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.7));
+            transition: transform 0.25s ease-out;
+        }
+        .rover-center-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #1d4ed8;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 14px rgba(29, 78, 216, 0.95), 0 2px 6px rgba(0,0,0,0.7);
+            position: relative;
+            z-index: 2;
+        }
+        .rover-pulse-ring {
+            position: absolute;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.4);
+            animation: roverPulse 2s infinite ease-out;
+            z-index: 1;
+        }
+        @keyframes roverPulse {
+            0% { transform: scale(0.5); opacity: 0.9; }
+            100% { transform: scale(1.7); opacity: 0; }
+        }
     </style>
 </head>
 <body class="bg-space-950 text-slate-100 flex flex-col h-screen overflow-hidden select-none">
@@ -115,15 +182,23 @@
             </div>
         </div>
 
-        <!-- Center: Dual Mode Switcher -->
-        <div class="flex items-center bg-space-950 p-1 rounded-lg border border-space-700">
-            <button id="btnModeOps" onclick="switchMode('ops')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 shadow-sm shadow-cyan-500/20">
-                <i class="fa-solid fa-satellite-dish text-xs"></i>
-                <span>Astronaut Operations</span>
-            </button>
-            <button id="btnModeEdu" onclick="switchMode('edu')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-slate-200">
-                <i class="fa-solid fa-graduation-cap text-xs"></i>
-                <span>Student Research Lab</span>
+        <!-- Center: Dual Mode Switcher & Rover Street View -->
+        <div class="flex items-center space-x-2">
+            <div class="flex items-center bg-space-950 p-1 rounded-lg border border-space-700">
+                <button id="btnModeOps" onclick="switchMode('ops')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 shadow-sm shadow-cyan-500/20">
+                    <i class="fa-solid fa-satellite-dish text-xs"></i>
+                    <span>Astronaut Operations</span>
+                </button>
+                <button id="btnModeEdu" onclick="switchMode('edu')" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-graduation-cap text-xs"></i>
+                    <span>Student Research Lab</span>
+                </button>
+            </div>
+
+            <!-- Google Street View Style Mars Rover Cam Button -->
+            <button onclick="openRoverStreetView()" title="Launch Google Maps Style Mars Rover Street View" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-gradient-to-r from-amber-500 via-orange-500 to-mars hover:from-amber-400 hover:to-orange-400 text-white shadow-md shadow-orange-500/30 transition-all font-mono cursor-pointer border border-amber-400/40">
+                <i class="fa-solid fa-street-view text-sm text-yellow-200"></i>
+                <span class="font-bold tracking-wide">Rover Street View</span>
             </button>
         </div>
 
@@ -696,6 +771,145 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Mars Rover Google Street View Split-Screen Mode -->
+    <div id="roverStreetViewContainer" class="fixed inset-0 z-[1500] hidden bg-space-950 flex flex-col overflow-hidden select-none">
+        
+        <!-- Top 50% Pane: First-Person 3D Martian Surface Street View -->
+        <div id="streetViewTopPane" class="relative w-full h-1/2 min-h-[220px] transition-all duration-300 overflow-hidden bg-black flex flex-col">
+            <!-- Navcam Panoramic Terrain Canvas -->
+            <canvas id="roverNavcamCanvas" class="w-full h-full object-cover cursor-grab active:cursor-grabbing"></canvas>
+
+            <!-- Top HUD Bar: Google Street View Style Header -->
+            <div class="absolute top-3 inset-x-4 flex items-center justify-between pointer-events-none z-20">
+                <!-- Left: NASA / Google Style Mission Badge -->
+                <div class="flex items-center space-x-2 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/20 text-white shadow-xl pointer-events-auto">
+                    <i class="fa-solid fa-robot text-cyan-400 text-sm"></i>
+                    <span class="font-bold text-xs tracking-wider font-mono">NASA ROVER NAVCAM</span>
+                    <span class="text-slate-400 text-[11px]">• Sol 842</span>
+                    <span id="svSectorBadge" class="text-amber-400 font-mono text-[11px] font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">Jezero Delta</span>
+                </div>
+
+                <!-- Right: Compass, Auto-Drive, Fullscreen & Close -->
+                <div class="flex items-center space-x-2 pointer-events-auto">
+                    <div class="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 text-xs font-mono text-cyan-300 flex items-center space-x-1.5 shadow-xl">
+                        <i class="fa-solid fa-compass text-cyan-400"></i>
+                        <span id="svHeading">038° NE</span>
+                    </div>
+
+                    <button id="btnAutoDrive" onclick="toggleRoverAutoDrive()" title="Toggle Auto-Drive Rover along corridor" class="bg-cyan-600/80 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 shadow-xl border border-cyan-400/40 cursor-pointer transition-all">
+                        <i id="iconAutoDrive" class="fa-solid fa-play text-[10px]"></i>
+                        <span id="lblAutoDrive">Auto Drive</span>
+                    </button>
+
+                    <button onclick="toggleStreetViewSplitFullscreen()" title="Toggle Fullscreen Street View" class="w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center border border-white/20 shadow-xl cursor-pointer transition-all">
+                        <i id="iconTopExpand" class="fa-solid fa-expand text-xs"></i>
+                    </button>
+
+                    <button onclick="exitRoverStreetView()" title="Exit Street View to Orbital Map" class="w-8 h-8 rounded-full bg-black/60 hover:bg-rose-600 text-white flex items-center justify-center border border-white/20 shadow-xl cursor-pointer transition-all">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3D Navigational Ground Chevrons (Google Street View Style) -->
+            <div class="absolute inset-0 pointer-events-none flex flex-col items-center justify-end pb-8 street-view-ground-viewport z-10">
+                <div class="chevron-3d-plane flex flex-col items-center space-y-4 pointer-events-auto">
+                    <!-- Far Chevron (smaller, ahead in distance) -->
+                    <button onclick="stepRover('forward')" title="Step Rover Forward (Next Waypoint)" class="nav-chevron-btn group cursor-pointer p-1 flex flex-col items-center">
+                        <svg class="w-12 h-8 text-white/80 group-hover:text-cyan-300 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)] animate-pulse" viewBox="0 0 24 16" fill="currentColor">
+                            <path d="M12 2L2 12l2 2 8-8 8 8 2-2L12 2z"/>
+                        </svg>
+                    </button>
+
+                    <!-- 3D Perspective Road Name (Matching 'NH 38' in Google Street View) -->
+                    <div id="svRoadLabel" class="text-white font-mono font-black text-xs sm:text-sm tracking-[0.2em] uppercase text-center px-4 py-1 rounded bg-black/50 backdrop-blur-sm border border-white/30 select-none shadow-2xl">
+                        MARS TRAVERSAL CORRIDOR • SOL 842
+                    </div>
+
+                    <!-- Near Chevron (large, immediate foreground) -->
+                    <button onclick="stepRover('forward')" title="Step Rover Forward" class="nav-chevron-btn group cursor-pointer p-2 flex flex-col items-center">
+                        <svg class="w-16 h-10 text-white group-hover:text-cyan-400 drop-shadow-[0_6px_16px_rgba(0,0,0,0.95)]" viewBox="0 0 24 16" fill="currentColor">
+                            <path d="M12 2L2 12l2 2 8-8 8 8 2-2L12 2z"/>
+                        </svg>
+                    </button>
+
+                    <!-- Multi-Directional Ground Nav Controls (Steer Left, Reverse, Steer Right) -->
+                    <div class="flex items-center space-x-6 pt-1">
+                        <button onclick="rotateRover(-30)" title="Turn Rover Left 30° [A / ←]" class="nav-chevron-btn w-9 h-9 rounded-full bg-black/60 hover:bg-black/90 text-white/90 hover:text-cyan-300 border border-white/30 flex items-center justify-center cursor-pointer shadow-lg">
+                            <i class="fa-solid fa-arrow-turn-up -rotate-90 text-xs"></i>
+                        </button>
+                        <button onclick="stepRover('backward')" title="Step Rover Backward [S / ↓]" class="nav-chevron-btn w-9 h-9 rounded-full bg-black/60 hover:bg-black/90 text-white/90 hover:text-cyan-300 border border-white/30 flex items-center justify-center cursor-pointer shadow-lg">
+                            <i class="fa-solid fa-chevron-down text-xs"></i>
+                        </button>
+                        <button onclick="rotateRover(30)" title="Turn Rover Right 30° [D / →]" class="nav-chevron-btn w-9 h-9 rounded-full bg-black/60 hover:bg-black/90 text-white/90 hover:text-cyan-300 border border-white/30 flex items-center justify-center cursor-pointer shadow-lg">
+                            <i class="fa-solid fa-arrow-turn-up rotate-90 text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Telemetry Ticker of Top Viewport & Expand Button -->
+            <div class="absolute bottom-2 inset-x-3 flex items-center justify-between pointer-events-none z-20">
+                <!-- Left Telemetry Badges -->
+                <div class="flex items-center space-x-2 bg-black/70 backdrop-blur-md px-3 py-1 rounded-lg border border-white/15 text-[11px] font-mono text-slate-200 pointer-events-auto">
+                    <div>LAT: <span id="svLat" class="text-cyan-300 font-bold">18.38°</span></div>
+                    <span class="text-slate-500">|</span>
+                    <div>LON: <span id="svLon" class="text-cyan-300 font-bold">77.58°E</span></div>
+                    <span class="text-slate-500">|</span>
+                    <div>ELEV: <span id="svElev" class="text-amber-300 font-bold">-2,450 m</span></div>
+                    <span class="text-slate-500">|</span>
+                    <div>SLOPE: <span id="svSlope" class="text-emerald-400 font-bold">3.8°</span></div>
+                    <span class="text-slate-500">|</span>
+                    <div>TEMP: <span id="svTemp" class="text-rose-400 font-bold">-62.5°C</span></div>
+                </div>
+
+                <!-- Center Waypoint Indicator -->
+                <div class="hidden md:flex items-center space-x-2 bg-black/70 backdrop-blur-md px-3 py-1 rounded-lg border border-white/15 text-[11px] font-mono text-cyan-300 pointer-events-auto">
+                    <i class="fa-solid fa-route text-cyan-400"></i>
+                    <span id="svWaypointInfo">WP 1 OF 24 • DIST: 0.0 KM</span>
+                </div>
+
+                <!-- Right: Expand Icon (Exact Match to bottom-right ⤢ icon in screenshot) -->
+                <button onclick="toggleStreetViewSplitFullscreen()" title="Toggle Fullscreen Street View" class="w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center border border-white/30 shadow-2xl pointer-events-auto cursor-pointer hover:scale-110 active:scale-95 transition-all">
+                    <i id="iconBottomRightExpand" class="fa-solid fa-up-right-and-down-left-from-center text-sm"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom 50% Pane: Synchronized 2D Martian Leaflet Map -->
+        <div id="streetViewBottomPane" class="relative w-full h-1/2 min-h-[220px] transition-all duration-300 border-t border-space-700 bg-space-950">
+            <!-- Secondary Leaflet Map Instance -->
+            <div id="streetViewMap" class="w-full h-full"></div>
+
+            <!-- Floating Bottom-Left Pill: 'Back to route' (Exact match to screenshot) -->
+            <button id="btnBackToRoute" onclick="exitRoverStreetView()" class="absolute bottom-5 left-5 z-[1000] flex items-center space-x-2.5 bg-white hover:bg-slate-50 text-slate-800 hover:text-cyan-800 px-5 py-3 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.6)] font-bold text-xs transition-all cursor-pointer border border-slate-200 hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-arrow-left text-teal-700 text-sm"></i>
+                <span class="tracking-wide font-sans">Back to route</span>
+            </button>
+
+            <!-- Floating Bottom-Right Traversal Palette -->
+            <div class="absolute bottom-5 right-5 z-[1000] flex flex-col items-end space-y-2 pointer-events-none">
+                <div class="flex items-center space-x-1.5 bg-space-950/90 backdrop-blur-md p-1.5 rounded-lg border border-space-700 shadow-xl pointer-events-auto">
+                    <span class="text-[10px] text-slate-400 font-mono px-2 uppercase font-bold">Corridor:</span>
+                    <button onclick="setStreetViewRoute(0)" id="svRouteBtn0" class="px-2.5 py-1 text-xs rounded font-mono bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 cursor-pointer">
+                        Jezero Delta
+                    </button>
+                    <button onclick="setStreetViewRoute(1)" id="svRouteBtn1" class="px-2.5 py-1 text-xs rounded font-mono bg-space-900 text-slate-400 hover:text-slate-200 border border-space-700 cursor-pointer">
+                        Valles Marineris
+                    </button>
+                    <button onclick="setStreetViewRoute(2)" id="svRouteBtn2" class="px-2.5 py-1 text-xs rounded font-mono bg-space-900 text-slate-400 hover:text-slate-200 border border-space-700 cursor-pointer">
+                        Olympus Mons
+                    </button>
+                </div>
+                <div class="text-[10px] text-slate-300 bg-black/70 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 font-mono shadow-md pointer-events-auto">
+                    <i class="fa-solid fa-location-crosshairs text-cyan-400 mr-1"></i>
+                    Click any point on map to traverse rover there
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- Application Script -->

@@ -943,6 +943,805 @@ function playSfx(type) {
             gain.gain.linearRampToValueAtTime(0.001, now + 0.25);
             osc.start(now);
             osc.stop(now + 0.25);
+        } else if (type === 'rover_drive') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(140, now);
+            osc.frequency.exponentialRampToValueAtTime(220, now + 0.08);
+            osc.frequency.exponentialRampToValueAtTime(110, now + 0.22);
+            gain.gain.setValueAtTime(0.07, now);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.22);
+            osc.start(now);
+            osc.stop(now + 0.22);
+        } else if (type === 'rover_turn') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(380, now);
+            osc.frequency.linearRampToValueAtTime(280, now + 0.12);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.linearRampToValueAtTime(0.001, now + 0.12);
+            osc.start(now);
+            osc.stop(now + 0.12);
         }
     } catch (e) {}
 }
+
+// ==============================================================
+// 14. GOOGLE MAPS STYLE MARS ROVER STREET VIEW CONTROLLER
+// Split screen: Top 50% 3D ground perspective, Bottom 50% 2D Leaflet
+// ==============================================================
+let svMap = null;
+let svRoverMarker = null;
+let svHeadingConeEl = null;
+let svRoutePolyline = null;
+let svRouteHaloPolyline = null;
+let svWaypointMarkers = [];
+let svWaypoints = [];
+let svCurrentIndex = 0;
+let svHeading = 38; // degrees from North (0 - 360)
+let svPitch = 0; // vertical camera pitch
+let svIsAutoDriving = false;
+let svAutoDriveTimer = null;
+let svCanvas = null;
+let svCtx = null;
+let svAnimFrame = null;
+let svIsDragging = false;
+let svDragStartX = 0;
+let svDragStartY = 0;
+let svHeadingAtDragStart = 0;
+let svStepBump = 0; // visual camera lurch when stepping
+let svActiveCorridor = 0; // 0: Jezero, 1: Valles Marineris, 2: Olympus Mons
+let svIsFullscreen = false;
+
+function generateDenseWaypoints(coarseCoords, totalSteps = 28) {
+    if (!coarseCoords || coarseCoords.length < 2) return coarseCoords || [];
+    const result = [];
+    const segmentCount = coarseCoords.length - 1;
+    const stepsPerSeg = Math.max(2, Math.floor(totalSteps / segmentCount));
+    for (let i = 0; i < segmentCount; i++) {
+        const [lat1, lon1] = coarseCoords[i];
+        const [lat2, lon2] = coarseCoords[i + 1];
+        for (let s = 0; s < stepsPerSeg; s++) {
+            const t = s / stepsPerSeg;
+            result.push([
+                parseFloat((lat1 + (lat2 - lat1) * t).toFixed(4)),
+                parseFloat((lon1 + (lon2 - lon1) * t).toFixed(4))
+            ]);
+        }
+    }
+    result.push([
+        parseFloat(coarseCoords[coarseCoords.length - 1][0].toFixed(4)),
+        parseFloat(coarseCoords[coarseCoords.length - 1][1].toFixed(4))
+    ]);
+    return result;
+}
+
+function initStreetViewMap() {
+    if (svMap) return;
+    
+    // Create Leaflet instance on #streetViewMap
+    svMap = L.map("streetViewMap", {
+        center: [18.38, 77.58],
+        zoom: 7,
+        minZoom: 2,
+        maxZoom: 9,
+        attributionControl: false,
+        zoomControl: true
+    });
+
+    // Dark Martian tile layer
+    const marsTiles = L.tileLayer(
+        "https://cartocdn-gusc.global.ssl.fastly.net/opmbuilder/api/v1/map/named/opm-mars-basemap-v0-2/all/{z}/{x}/{y}.png",
+        { maxZoom: 9 }
+    );
+    const darkFallback = L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        { subdomains: "abcd", maxZoom: 9 }
+    );
+    marsTiles.addTo(svMap);
+    marsTiles.on("tileerror", () => {
+        if (!svMap.hasLayer(darkFallback)) darkFallback.addTo(svMap);
+    });
+
+    // Clicking ANY point on the map traverses the rover directly there!
+    svMap.on("click", (e) => {
+        const clickedLat = parseFloat(e.latlng.lat.toFixed(4));
+        const clickedLon = parseFloat(e.latlng.lng.toFixed(4));
+        teleportRoverTo(clickedLat, clickedLon);
+    });
+}
+
+function updateRoverMarkerOnMap(lat, lon, heading) {
+    if (!svMap) return;
+
+    if (!svRoverMarker) {
+        const icon = L.divIcon({
+            className: "custom-rover-street-icon",
+            html: `
+                <div class="rover-marker-container">
+                    <div id="svHeadingCone" class="rover-heading-cone" style="transform: rotate(${heading}deg);"></div>
+                    <div class="rover-pulse-ring"></div>
+                    <div class="rover-center-dot"></div>
+                </div>
+            `,
+            iconSize: [48, 48],
+            iconAnchor: [24, 24]
+        });
+        svRoverMarker = L.marker([lat, lon], { icon, zIndexOffset: 1000 }).addTo(svMap);
+        svHeadingConeEl = document.getElementById("svHeadingCone");
+    } else {
+        svRoverMarker.setLatLng([lat, lon]);
+        svHeadingConeEl = document.getElementById("svHeadingCone");
+        if (svHeadingConeEl) {
+            svHeadingConeEl.style.transform = `rotate(${heading}deg)`;
+        }
+    }
+}
+
+function renderStreetViewRouteLines() {
+    if (!svMap || !svWaypoints || svWaypoints.length < 2) return;
+
+    if (svRouteHaloPolyline) svMap.removeLayer(svRouteHaloPolyline);
+    if (svRoutePolyline) svMap.removeLayer(svRoutePolyline);
+
+    // Outer casing / halo (dark blue)
+    svRouteHaloPolyline = L.polyline(svWaypoints, {
+        color: "#1e3a8a",
+        weight: 9,
+        opacity: 0.75,
+        lineCap: "round",
+        lineJoin: "round"
+    }).addTo(svMap);
+
+    // Inner bright blue Google Maps style line
+    svRoutePolyline = L.polyline(svWaypoints, {
+        color: "#2563eb",
+        weight: 6,
+        opacity: 0.95,
+        lineCap: "round",
+        lineJoin: "round"
+    }).addTo(svMap);
+
+    // Waypoint dots
+    svWaypointMarkers.forEach(m => svMap.removeLayer(m));
+    svWaypointMarkers = [];
+
+    // Add small circles along route
+    const stepInterval = Math.max(1, Math.floor(svWaypoints.length / 8));
+    for (let i = 0; i < svWaypoints.length; i += stepInterval) {
+        const wp = svWaypoints[i];
+        const dot = L.circleMarker(wp, {
+            radius: 4,
+            fillColor: "#ffffff",
+            color: "#1e3a8a",
+            weight: 2,
+            fillOpacity: 0.9
+        }).addTo(svMap);
+
+        const pointIndex = i;
+        dot.on("click", () => {
+            svCurrentIndex = pointIndex;
+            const coord = svWaypoints[pointIndex];
+            updateRoverMarkerOnMap(coord[0], coord[1], svHeading);
+            fetchTelemetryForPoint(coord[0], coord[1]);
+            updateStreetViewHUD();
+            playSfx('rover_drive');
+        });
+        svWaypointMarkers.push(dot);
+    }
+}
+
+function openRoverStreetView() {
+    playSfx('warp');
+    const container = document.getElementById("roverStreetViewContainer");
+    if (!container) return;
+
+    container.classList.remove("hidden");
+    
+    // Initialize map
+    initStreetViewMap();
+
+    // Start 3D canvas renderer
+    startNavcamRenderer();
+
+    // Set default route if none loaded
+    if (!svWaypoints || svWaypoints.length === 0) {
+        setStreetViewRoute(0);
+    } else {
+        renderStreetViewRouteLines();
+        const cur = svWaypoints[svCurrentIndex];
+        updateRoverMarkerOnMap(cur[0], cur[1], svHeading);
+    }
+
+    // Force Leaflet to re-measure viewport
+    setTimeout(() => {
+        if (svMap) {
+            svMap.invalidateSize();
+            const cur = svWaypoints[svCurrentIndex];
+            if (cur) svMap.panTo(cur);
+        }
+    }, 150);
+}
+
+function exitRoverStreetView() {
+    playSfx('click');
+    const container = document.getElementById("roverStreetViewContainer");
+    if (container) {
+        container.classList.add("hidden");
+    }
+    if (svIsAutoDriving) {
+        toggleRoverAutoDrive();
+    }
+    if (svAnimFrame) {
+        cancelAnimationFrame(svAnimFrame);
+        svAnimFrame = null;
+    }
+    // Re-invalidate orbital map
+    if (map) {
+        setTimeout(() => map.invalidateSize(), 150);
+    }
+}
+
+function stepRover(direction) {
+    if (!svWaypoints || svWaypoints.length === 0) return;
+
+    if (direction === 'forward') {
+        if (svCurrentIndex < svWaypoints.length - 1) {
+            svCurrentIndex++;
+            playSfx('rover_drive');
+        } else {
+            // Reached end of corridor
+            if (svIsAutoDriving) toggleRoverAutoDrive();
+            playSfx('alert');
+            return;
+        }
+    } else if (direction === 'backward') {
+        if (svCurrentIndex > 0) {
+            svCurrentIndex--;
+            playSfx('rover_drive');
+        } else {
+            playSfx('alert');
+            return;
+        }
+    }
+
+    const currentCoord = svWaypoints[svCurrentIndex];
+    
+    // Calculate heading based on trajectory
+    if (direction === 'forward' && svCurrentIndex < svWaypoints.length - 1) {
+        const nextCoord = svWaypoints[svCurrentIndex + 1];
+        const dLat = nextCoord[0] - currentCoord[0];
+        const dLon = nextCoord[1] - currentCoord[1];
+        let angle = Math.atan2(dLon, dLat) * 180 / Math.PI;
+        svHeading = (Math.round(angle) + 360) % 360;
+    } else if (direction === 'backward' && svCurrentIndex > 0) {
+        const prevCoord = svWaypoints[svCurrentIndex - 1];
+        const dLat = currentCoord[0] - prevCoord[0];
+        const dLon = currentCoord[1] - prevCoord[1];
+        let angle = Math.atan2(dLon, dLat) * 180 / Math.PI;
+        svHeading = (Math.round(angle) + 360) % 360;
+    }
+
+    // Camera bump animation
+    svStepBump = direction === 'forward' ? 18 : -14;
+
+    // Update marker on map
+    updateRoverMarkerOnMap(currentCoord[0], currentCoord[1], svHeading);
+    if (svMap) {
+        svMap.panTo([currentCoord[0], currentCoord[1]], { animate: true, duration: 0.4 });
+    }
+
+    // Fetch live elevation, slope, temp
+    fetchTelemetryForPoint(currentCoord[0], currentCoord[1]);
+    updateStreetViewHUD();
+}
+
+function rotateRover(degDelta) {
+    svHeading = (svHeading + degDelta + 360) % 360;
+    playSfx('rover_turn');
+    if (svHeadingConeEl) {
+        svHeadingConeEl.style.transform = `rotate(${svHeading}deg)`;
+    }
+    updateStreetViewHUD();
+}
+
+function teleportRoverTo(lat, lon) {
+    playSfx('rover_drive');
+    const prevCoord = svWaypoints[svCurrentIndex] || [18.38, 77.58];
+    
+    // Calculate heading toward clicked point
+    const dLat = lat - prevCoord[0];
+    const dLon = lon - prevCoord[1];
+    if (Math.abs(dLat) > 0.001 || Math.abs(dLon) > 0.001) {
+        let angle = Math.atan2(dLon, dLat) * 180 / Math.PI;
+        svHeading = (Math.round(angle) + 360) % 360;
+    }
+
+    // Insert new waypoint or jump
+    svWaypoints.splice(svCurrentIndex + 1, 0, [lat, lon]);
+    svCurrentIndex++;
+
+    renderStreetViewRouteLines();
+    updateRoverMarkerOnMap(lat, lon, svHeading);
+    if (svMap) {
+        svMap.panTo([lat, lon], { animate: true, duration: 0.5 });
+    }
+
+    // Camera bump animation
+    svStepBump = 14;
+
+    // Fetch telemetry for this exact point on Mars
+    fetchTelemetryForPoint(lat, lon);
+    updateStreetViewHUD();
+}
+
+function toggleStreetViewSplitFullscreen() {
+    const topPane = document.getElementById("streetViewTopPane");
+    const bottomPane = document.getElementById("streetViewBottomPane");
+    const iconTop = document.getElementById("iconTopExpand");
+    const iconBtm = document.getElementById("iconBottomRightExpand");
+
+    svIsFullscreen = !svIsFullscreen;
+    if (svIsFullscreen) {
+        topPane.classList.remove("h-1/2");
+        topPane.classList.add("h-full");
+        bottomPane.classList.add("hidden");
+        if (iconTop) iconTop.className = "fa-solid fa-compress text-xs";
+        if (iconBtm) iconBtm.className = "fa-solid fa-down-left-and-up-right-to-center text-sm";
+    } else {
+        topPane.classList.remove("h-full");
+        topPane.classList.add("h-1/2");
+        bottomPane.classList.remove("hidden");
+        if (iconTop) iconTop.className = "fa-solid fa-expand text-xs";
+        if (iconBtm) iconBtm.className = "fa-solid fa-up-right-and-down-left-from-center text-sm";
+        if (svMap) {
+            setTimeout(() => svMap.invalidateSize(), 200);
+        }
+    }
+    playSfx('click');
+}
+
+function toggleRoverAutoDrive() {
+    svIsAutoDriving = !svIsAutoDriving;
+    const btn = document.getElementById("btnAutoDrive");
+    const icon = document.getElementById("iconAutoDrive");
+    const lbl = document.getElementById("lblAutoDrive");
+
+    if (svIsAutoDriving) {
+        if (btn) {
+            btn.classList.add("bg-amber-600/90", "border-amber-400");
+            btn.classList.remove("bg-cyan-600/80");
+        }
+        if (icon) icon.className = "fa-solid fa-pause text-[10px]";
+        if (lbl) lbl.innerText = "Pause";
+        playSfx('warp');
+
+        svAutoDriveTimer = setInterval(() => {
+            if (svCurrentIndex < svWaypoints.length - 1) {
+                stepRover('forward');
+            } else {
+                toggleRoverAutoDrive();
+            }
+        }, 1250);
+    } else {
+        if (svAutoDriveTimer) clearInterval(svAutoDriveTimer);
+        svAutoDriveTimer = null;
+        if (btn) {
+            btn.classList.remove("bg-amber-600/90", "border-amber-400");
+            btn.classList.add("bg-cyan-600/80");
+        }
+        if (icon) icon.className = "fa-solid fa-play text-[10px]";
+        if (lbl) lbl.innerText = "Auto Drive";
+        playSfx('click');
+    }
+}
+
+function setStreetViewRoute(routeIdx) {
+    svActiveCorridor = routeIdx;
+
+    // Update buttons
+    [0, 1, 2].forEach(i => {
+        const b = document.getElementById(`svRouteBtn${i}`);
+        if (!b) return;
+        if (i === routeIdx) {
+            b.className = "px-2.5 py-1 text-xs rounded font-mono bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 cursor-pointer";
+        } else {
+            b.className = "px-2.5 py-1 text-xs rounded font-mono bg-space-900 text-slate-400 hover:text-slate-200 border border-space-700 cursor-pointer";
+        }
+    });
+
+    const badge = document.getElementById("svSectorBadge");
+    const corridors = [
+        {
+            name: "Jezero Delta",
+            coords: [[18.38, 77.58], [18.25, 78.10], [17.90, 78.90], [17.40, 79.80], [16.80, 80.70], [16.10, 81.60], [15.40, 82.50], [14.60, 83.60], [13.70, 85.00], [12.80, 88.20]]
+        },
+        {
+            name: "Valles Marineris",
+            coords: [[-8.50, -62.10], [-9.10, -62.30], [-9.80, -62.50], [-10.50, -62.70], [-11.20, -62.90], [-11.90, -63.10], [-12.60, -63.30], [-13.40, -63.60], [-14.10, -63.90], [-14.80, -64.20]]
+        },
+        {
+            name: "Olympus Mons",
+            coords: [[17.20, -135.50], [17.60, -134.80], [18.00, -134.10], [18.40, -133.40], [18.80, -132.70], [19.20, -132.00], [19.60, -131.20], [20.00, -130.50], [20.40, -129.80], [21.00, -129.00]]
+        }
+    ];
+
+    const sel = corridors[routeIdx] || corridors[0];
+    if (badge) badge.innerText = sel.name;
+
+    svWaypoints = generateDenseWaypoints(sel.coords, 28);
+    svCurrentIndex = 0;
+    const startCoord = svWaypoints[0];
+
+    // Compute initial heading
+    if (svWaypoints.length > 1) {
+        const nextCoord = svWaypoints[1];
+        const dLat = nextCoord[0] - startCoord[0];
+        const dLon = nextCoord[1] - startCoord[1];
+        svHeading = (Math.round(Math.atan2(dLon, dLat) * 180 / Math.PI) + 360) % 360;
+    }
+
+    renderStreetViewRouteLines();
+    updateRoverMarkerOnMap(startCoord[0], startCoord[1], svHeading);
+
+    if (svMap) {
+        svMap.fitBounds(L.latLngBounds(svWaypoints), { padding: [50, 50], maxZoom: 8 });
+    }
+
+    fetchTelemetryForPoint(startCoord[0], startCoord[1]);
+    updateStreetViewHUD();
+    playSfx('warp');
+}
+
+function fetchTelemetryForPoint(lat, lon) {
+    const lon360 = lon >= 0 ? lon : 360 + lon;
+    fetch(`/api/telemetry?lat=${lat}&lon=${lon}`)
+        .then(res => res.json())
+        .then(data => {
+            const elev = data.elevation ? Math.round(data.elevation.elevation_m) : 0;
+            const slope = data.elevation ? data.elevation.slope_deg.toFixed(1) : "0.0";
+            const temp = data.thermal ? data.thermal.temperature_c.toFixed(1) : "-62.5";
+
+            const elElev = document.getElementById("svElev");
+            const elSlope = document.getElementById("svSlope");
+            const elTemp = document.getElementById("svTemp");
+            const elLat = document.getElementById("svLat");
+            const elLon = document.getElementById("svLon");
+
+            if (elElev) elElev.innerText = `${elev.toLocaleString()} m`;
+            if (elSlope) elSlope.innerText = `${slope}°`;
+            if (elTemp) elTemp.innerText = `${temp}°C`;
+            if (elLat) elLat.innerText = `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}`;
+            if (elLon) elLon.innerText = `${lon360.toFixed(2)}°E`;
+        })
+        .catch(err => console.warn("Street view telemetry fetch error:", err));
+}
+
+function updateStreetViewHUD() {
+    const elHeading = document.getElementById("svHeading");
+    const elInfo = document.getElementById("svWaypointInfo");
+    const elRoadLabel = document.getElementById("svRoadLabel");
+
+    const cardinals = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    const cardIdx = Math.round(svHeading / 22.5) % 16;
+    const cardStr = cardinals[cardIdx];
+    const degStr = String(Math.round(svHeading)).padStart(3, '0');
+
+    if (elHeading) {
+        elHeading.innerText = `${degStr}° ${cardStr}`;
+    }
+
+    const corridorNames = [
+        "JEZERO DELTA HIGHWAY",
+        "VALLES MARINERIS CHASMA ROUTE",
+        "OLYMPUS MONS CALDERA TRAIL"
+    ];
+    const cName = corridorNames[svActiveCorridor] || "MARS TRAVERSAL CORRIDOR";
+
+    const totalWp = svWaypoints.length;
+    const curWp = svCurrentIndex + 1;
+    if (elInfo) {
+        elInfo.innerText = `WP ${curWp} OF ${totalWp} • HEADING ${degStr}° ${cardStr}`;
+    }
+    if (elRoadLabel) {
+        elRoadLabel.innerText = `${cName} • WP ${curWp}`;
+    }
+}
+
+function startNavcamRenderer() {
+    svCanvas = document.getElementById("roverNavcamCanvas");
+    if (!svCanvas) return;
+    svCtx = svCanvas.getContext("2d");
+    initNavcamEvents();
+
+    function renderLoop() {
+        drawNavcamScene();
+        svAnimFrame = requestAnimationFrame(renderLoop);
+    }
+    if (svAnimFrame) cancelAnimationFrame(svAnimFrame);
+    svAnimFrame = requestAnimationFrame(renderLoop);
+}
+
+function initNavcamEvents() {
+    if (!svCanvas || svCanvas._eventsAttached) return;
+    svCanvas._eventsAttached = true;
+
+    svCanvas.addEventListener("mousedown", (e) => {
+        svIsDragging = true;
+        svDragStartX = e.clientX;
+        svDragStartY = e.clientY;
+        svHeadingAtDragStart = svHeading;
+    });
+
+    window.addEventListener("mousemove", (e) => {
+        if (!svIsDragging) return;
+        const dx = e.clientX - svDragStartX;
+        const dy = e.clientY - svDragStartY;
+        svHeading = (svHeadingAtDragStart - dx * 0.25 + 360) % 360;
+        svPitch = Math.max(-50, Math.min(50, dy * 0.2));
+        if (svHeadingConeEl) {
+            svHeadingConeEl.style.transform = `rotate(${svHeading}deg)`;
+        }
+        updateStreetViewHUD();
+    });
+
+    window.addEventListener("mouseup", () => {
+        if (svIsDragging) {
+            svIsDragging = false;
+        }
+    });
+
+    // Touch support for mobile / touchscreens
+    svCanvas.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 1) {
+            svIsDragging = true;
+            svDragStartX = e.touches[0].clientX;
+            svDragStartY = e.touches[0].clientY;
+            svHeadingAtDragStart = svHeading;
+        }
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+        if (!svIsDragging || e.touches.length === 0) return;
+        const dx = e.touches[0].clientX - svDragStartX;
+        const dy = e.touches[0].clientY - svDragStartY;
+        svHeading = (svHeadingAtDragStart - dx * 0.35 + 360) % 360;
+        svPitch = Math.max(-50, Math.min(50, dy * 0.25));
+        if (svHeadingConeEl) {
+            svHeadingConeEl.style.transform = `rotate(${svHeading}deg)`;
+        }
+        updateStreetViewHUD();
+    }, { passive: true });
+
+    window.addEventListener("touchend", () => {
+        svIsDragging = false;
+    });
+}
+
+function drawNavcamScene() {
+    if (!svCanvas || !svCtx) return;
+    const w = svCanvas.width = svCanvas.clientWidth;
+    const h = svCanvas.height = svCanvas.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    const ctx = svCtx;
+    const horizonY = h * 0.46 + svPitch + svStepBump;
+
+    // 1. Martian Sky Gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+    skyGrad.addColorStop(0, "#2c130b"); // Dark amber space
+    skyGrad.addColorStop(0.4, "#5a2717");
+    skyGrad.addColorStop(0.75, "#b3532f");
+    skyGrad.addColorStop(1, "#df8454"); // Salmon horizon dust
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, w, Math.max(0, horizonY));
+
+    // 2. High Altitude Pale Sun with Martian Blue-White Halo
+    const sunAzimuth = 120;
+    let sunAngleDiff = (sunAzimuth - svHeading + 540) % 360 - 180;
+    if (Math.abs(sunAngleDiff) < 75) {
+        const sunX = w / 2 + (sunAngleDiff / 75) * (w / 2);
+        const sunY = horizonY - h * 0.22;
+        
+        const haloGrad = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 130);
+        haloGrad.addColorStop(0, "rgba(255, 250, 240, 0.95)");
+        haloGrad.addColorStop(0.25, "rgba(255, 215, 170, 0.45)");
+        haloGrad.addColorStop(0.65, "rgba(215, 120, 70, 0.12)");
+        haloGrad.addColorStop(1, "transparent");
+        ctx.fillStyle = haloGrad;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 130, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sun disc (pale bluish-white as observed by Curiosity/Perseverance)
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 7, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 3. Distant Crater Rim Mountain Silhouette
+    ctx.fillStyle = "#873b22";
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    for (let x = 0; x <= w; x += 15) {
+        const angle = ((svHeading * 2.2) + (x / w) * 110) * (Math.PI / 180);
+        const peak = Math.sin(angle * 1.5) * 22 + Math.cos(angle * 3.1) * 12 + Math.sin(angle * 0.7) * 32;
+        ctx.lineTo(x, horizonY - Math.max(3, peak));
+    }
+    ctx.lineTo(w, horizonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // 4. Midground Rolling Terraces (Sedimentary Beds)
+    ctx.fillStyle = "#ad4725";
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    for (let x = 0; x <= w; x += 20) {
+        const angle = ((svHeading * 3.4) + (x / w) * 90) * (Math.PI / 180);
+        const hill = Math.sin(angle * 2.0) * 14 + Math.cos(angle * 1.2) * 16;
+        ctx.lineTo(x, horizonY - Math.max(0, hill));
+    }
+    ctx.lineTo(w, horizonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // 5. Martian Ground Plane
+    const groundGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+    groundGrad.addColorStop(0, "#b85128");
+    groundGrad.addColorStop(0.25, "#a1421e");
+    groundGrad.addColorStop(0.65, "#823014");
+    groundGrad.addColorStop(1, "#541b0a");
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, horizonY, w, Math.max(0, h - horizonY));
+
+    // 6. Perspective Dune Ripples
+    ctx.strokeStyle = "rgba(125, 42, 16, 0.45)";
+    ctx.lineWidth = 1.5;
+    for (let r = 0; r < 14; r++) {
+        const t = Math.pow((r + 1) / 14, 2.2);
+        const y = horizonY + (h - horizonY) * t;
+        ctx.beginPath();
+        for (let x = 0; x <= w; x += 25) {
+            const wave = Math.sin((x / 65) + (svHeading * 0.05) + r) * (t * 6);
+            if (x === 0) ctx.moveTo(x, y + wave);
+            else ctx.lineTo(x, y + wave);
+        }
+        ctx.stroke();
+    }
+
+    // 7. Rover Tire Tracks
+    ctx.strokeStyle = "rgba(35, 10, 4, 0.4)";
+    ctx.lineWidth = 4;
+    // Left wheel track
+    ctx.beginPath();
+    ctx.moveTo(w * 0.48, horizonY + 2);
+    ctx.lineTo(w * 0.22, h);
+    ctx.stroke();
+    // Right wheel track
+    ctx.beginPath();
+    ctx.moveTo(w * 0.52, horizonY + 2);
+    ctx.lineTo(w * 0.78, h);
+    ctx.stroke();
+
+    // 8. Basaltic Rocks / Boulders in 3D Perspective
+    const rockSeeds = [
+        { u: -0.35, v: 0.85, s: 22, color: "#3e1b12" },
+        { u: 0.38, v: 0.75, s: 28, color: "#34150e" },
+        { u: -0.15, v: 0.60, s: 16, color: "#481f15" },
+        { u: 0.22, v: 0.50, s: 14, color: "#3a180f" },
+        { u: -0.42, v: 0.40, s: 12, color: "#421b12" },
+        { u: 0.45, v: 0.35, s: 10, color: "#37160f" },
+        { u: -0.08, v: 0.30, s: 8, color: "#4d2217" },
+        { u: 0.12, v: 0.22, s: 6, color: "#411b12" },
+        { u: -0.28, v: 0.18, s: 5, color: "#522419" },
+        { u: 0.30, v: 0.15, s: 4, color: "#3c1911" },
+        { u: -0.05, v: 0.95, s: 34, color: "#2c110a" },
+        { u: 0.52, v: 0.90, s: 30, color: "#391710" }
+    ];
+
+    rockSeeds.forEach((rock) => {
+        const relU = rock.u + Math.sin((svHeading * Math.PI) / 180) * 0.25;
+        const v = rock.v;
+        const t = Math.pow(v, 2.0);
+        const rx = w / 2 + relU * w * (0.3 + 0.7 * t);
+        const ry = horizonY + (h - horizonY) * t;
+        const size = rock.s * (0.2 + 0.8 * t);
+
+        if (rx > -50 && rx < w + 50 && ry < h) {
+            // Shadow
+            ctx.fillStyle = "rgba(18, 5, 2, 0.5)";
+            ctx.beginPath();
+            ctx.ellipse(rx + size * 0.3, ry + size * 0.35, size * 0.8, size * 0.35, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Rock body
+            ctx.fillStyle = rock.color;
+            ctx.beginPath();
+            ctx.moveTo(rx - size * 0.6, ry + size * 0.3);
+            ctx.lineTo(rx - size * 0.4, ry - size * 0.5);
+            ctx.lineTo(rx + size * 0.3, ry - size * 0.6);
+            ctx.lineTo(rx + size * 0.7, ry - size * 0.1);
+            ctx.lineTo(rx + size * 0.5, ry + size * 0.4);
+            ctx.closePath();
+            ctx.fill();
+
+            // Sun highlight
+            ctx.strokeStyle = "rgba(235, 155, 105, 0.35)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(rx - size * 0.4, ry - size * 0.5);
+            ctx.lineTo(rx + size * 0.3, ry - size * 0.6);
+            ctx.stroke();
+        }
+    });
+
+    // 9. Rover Chassis / Solar Panel Corner Silhouette
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    ctx.lineTo(w * 0.15, h);
+    ctx.lineTo(0, h - 50);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#00f0ff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.moveTo(w, h);
+    ctx.lineTo(w - w * 0.15, h);
+    ctx.lineTo(w, h - 50);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 10. Navcam Reticle Crosshairs in Center
+    const cx = w / 2;
+    const cy = horizonY;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, cy);
+    ctx.lineTo(cx - 6, cy);
+    ctx.moveTo(cx + 6, cy);
+    ctx.lineTo(cx + 18, cy);
+    ctx.moveTo(cx, cy - 18);
+    ctx.lineTo(cx, cy - 6);
+    ctx.moveTo(cx, cy + 6);
+    ctx.lineTo(cx, cy + 18);
+    ctx.stroke();
+
+    // Decay step bump smoothly
+    if (Math.abs(svStepBump) > 0.1) {
+        svStepBump *= 0.82;
+    } else {
+        svStepBump = 0;
+    }
+}
+
+// Global Keyboard Navigation for Mars Rover Street View
+window.addEventListener("keydown", (e) => {
+    const svContainer = document.getElementById("roverStreetViewContainer");
+    if (!svContainer || svContainer.classList.contains("hidden")) return;
+
+    if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") {
+        e.preventDefault();
+        stepRover('forward');
+    } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        stepRover('backward');
+    } else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
+        e.preventDefault();
+        rotateRover(-15);
+    } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+        e.preventDefault();
+        rotateRover(15);
+    } else if (e.key === "Escape") {
+        exitRoverStreetView();
+    } else if (e.key === " ") {
+        e.preventDefault();
+        toggleRoverAutoDrive();
+    }
+});
