@@ -78,13 +78,29 @@ def get_hirise_list():
             LIMIT ?
         ''', (limit,))
         
-    rows = [dict(r) for r in cur.fetchall()]
+    rows = []
+    for r in cur.fetchall():
+        d = dict(r)
+        d["real_image_path"] = f"F:\\mars details for building website\\archive mars surface images\\captioned\\images\\{d['obs_id']}.jpg"
+        rows.append(d)
     conn.close()
     return jsonify(rows)
 
+@app.route("/api/hirise/nearest")
+def get_nearest_hirise():
+    """Finds the nearest real NASA HiRISE observation and its real image path for any (lat, lon)."""
+    try:
+        lat = float(request.args.get("lat", 18.38))
+        lon = float(request.args.get("lon", 77.58))
+    except (ValueError, TypeError):
+        lat, lon = 18.38, 77.58
+
+    result = engine.find_nearest_hirise(lat, lon)
+    return jsonify(result)
+
 @app.route("/api/hirise/image/<obs_id>")
 def get_hirise_image(obs_id):
-    """Streams a 50 cm/pixel HiRISE image directly out of the 4.2 GB zip file."""
+    """Streams a 50 cm/pixel HiRISE image directly out of the local disk archive or 4.4 GB zip file."""
     img_data = engine.get_hirise_image_bytes(obs_id)
     if img_data is None:
         return Response("Image not found in archive", status=404, mimetype="text/plain")

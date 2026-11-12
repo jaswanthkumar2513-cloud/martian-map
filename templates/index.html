@@ -765,6 +765,17 @@
                         <span id="modalAltitude" class="text-amber-300"></span>
                     </div>
                 </div>
+
+                <!-- Real Local File Path on Host Drive -->
+                <div class="bg-space-950 p-2.5 rounded border border-emerald-500/40 flex items-center justify-between font-mono text-xs">
+                    <div class="truncate mr-2 flex items-center">
+                        <span class="text-emerald-400 font-bold mr-1 shrink-0"><i class="fa-solid fa-folder-open mr-1"></i>Real Image Path:</span>
+                        <span id="modalRealPath" class="text-slate-200 select-all truncate"></span>
+                    </div>
+                    <button onclick="navigator.clipboard.writeText(document.getElementById('modalRealPath').innerText); alert('Real image path copied to clipboard!');" class="text-xs bg-space-800 hover:bg-space-700 text-slate-200 px-2.5 py-1 rounded shrink-0 border border-space-600 cursor-pointer">
+                        <i class="fa-solid fa-copy mr-1"></i>Copy Path
+                    </button>
+                </div>
                 <div class="bg-space-950/90 p-3 rounded border border-space-800 text-xs text-slate-300 leading-relaxed">
                     <h4 class="text-[10px] uppercase font-bold text-slate-400 font-mono mb-1">NASA Planetary Scientist Caption:</h4>
                     <p id="modalCaption"></p>
@@ -778,21 +789,40 @@
         
         <!-- Top 50% Pane: First-Person 3D Martian Surface Street View -->
         <div id="streetViewTopPane" class="relative w-full h-1/2 min-h-[220px] transition-all duration-300 overflow-hidden bg-black flex flex-col">
-            <!-- Navcam Panoramic Terrain Canvas -->
-            <canvas id="roverNavcamCanvas" class="w-full h-full object-cover cursor-grab active:cursor-grabbing"></canvas>
+            
+            <!-- 1. Real NASA Mars Surface Image Background Layer -->
+            <div id="roverRealImageContainer" class="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
+                <img id="roverRealImage" src="/api/hirise/image/ESP_068360_1985" alt="Real NASA Mars Surface Image" class="w-full h-full object-cover transition-all duration-500 scale-100">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/70 pointer-events-none"></div>
+            </div>
+
+            <!-- 2. Synthetic Navcam Panoramic Terrain Canvas (Toggleable) -->
+            <canvas id="roverNavcamCanvas" class="w-full h-full object-cover cursor-grab active:cursor-grabbing hidden absolute inset-0 z-0"></canvas>
 
             <!-- Top HUD Bar: Google Street View Style Header -->
             <div class="absolute top-3 inset-x-4 flex items-center justify-between pointer-events-none z-20">
                 <!-- Left: NASA / Google Style Mission Badge -->
-                <div class="flex items-center space-x-2 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/20 text-white shadow-xl pointer-events-auto">
+                <div class="flex items-center space-x-2 bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/20 text-white shadow-xl pointer-events-auto">
                     <i class="fa-solid fa-robot text-cyan-400 text-sm"></i>
                     <span class="font-bold text-xs tracking-wider font-mono">NASA ROVER NAVCAM</span>
                     <span class="text-slate-400 text-[11px]">• Sol 842</span>
                     <span id="svSectorBadge" class="text-amber-400 font-mono text-[11px] font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">Jezero Delta</span>
                 </div>
 
-                <!-- Right: Compass, Auto-Drive, Fullscreen & Close -->
+                <!-- Right: Mode Toggle, Info Drawer, Compass, Auto-Drive, Fullscreen & Close -->
                 <div class="flex items-center space-x-2 pointer-events-auto">
+                    <!-- Toggle Real Image Feed vs 3D Synthetic Canvas -->
+                    <button id="btnToggleImageMode" onclick="toggleStreetViewMode()" title="Toggle Real NASA Image vs 3D Canvas" class="bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 shadow-xl border border-emerald-400/40 cursor-pointer transition-all">
+                        <i id="iconImageMode" class="fa-solid fa-camera text-[10px]"></i>
+                        <span id="lblImageMode">Real Image</span>
+                    </button>
+
+                    <!-- Real Image Info Drawer Button -->
+                    <button onclick="toggleRealImageDrawer()" title="View NASA Photo Details & Real Local File Path" class="bg-black/60 hover:bg-black/90 text-emerald-300 hover:text-white px-3 py-1.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 shadow-xl border border-emerald-500/40 cursor-pointer transition-all">
+                        <i class="fa-solid fa-circle-info text-xs"></i>
+                        <span>Image Info</span>
+                    </button>
+
                     <div class="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 text-xs font-mono text-cyan-300 flex items-center space-x-1.5 shadow-xl">
                         <i class="fa-solid fa-compass text-cyan-400"></i>
                         <span id="svHeading">038° NE</span>
@@ -811,6 +841,81 @@
                         <i class="fa-solid fa-xmark text-sm"></i>
                     </button>
                 </div>
+            </div>
+
+            <!-- Floating Real Image Path Notification Banner -->
+            <div id="svRealPathBanner" class="absolute top-14 inset-x-4 flex items-center justify-between pointer-events-none z-20">
+                <div class="bg-black/85 backdrop-blur-md px-3.5 py-1.5 rounded-lg border border-emerald-500/40 text-[11px] font-mono text-slate-200 shadow-xl pointer-events-auto flex items-center space-x-2 max-w-[85%] truncate">
+                    <span class="text-emerald-400 font-bold uppercase shrink-0 flex items-center">
+                        <i class="fa-solid fa-folder-open mr-1.5 text-emerald-300"></i>REAL IMAGE PATH:
+                    </span>
+                    <span id="svRealPathText" class="text-slate-200 truncate select-all font-mono font-semibold" title="Click to copy path">F:\mars details for building website\archive mars surface images\captioned\images\ESP_068360_1985.jpg</span>
+                    <button onclick="copyRealPath()" title="Copy Real Local Disk Path" class="text-slate-300 hover:text-white px-2 py-0.5 rounded bg-space-800 hover:bg-space-700 shrink-0 text-[10px] border border-space-600 cursor-pointer">
+                        <i class="fa-solid fa-copy mr-1"></i>Copy
+                    </button>
+                </div>
+
+                <div class="hidden md:flex items-center space-x-1 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-emerald-500/40 text-[11px] font-mono text-cyan-300 shadow-xl pointer-events-auto">
+                    <i class="fa-solid fa-satellite text-emerald-400 mr-1"></i>
+                    <span id="svObsIdBadge" class="font-bold">ESP_068360_1985</span>
+                </div>
+            </div>
+
+            <!-- Slide-out Real NASA Image Details Drawer -->
+            <div id="svRealImageDrawer" class="absolute top-24 left-4 max-w-md w-full bg-space-950/95 backdrop-blur-md border border-emerald-500/50 rounded-xl p-4 shadow-2xl z-30 hidden space-y-3 pointer-events-auto">
+                <div class="flex items-center justify-between border-b border-space-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-camera-retro text-emerald-400"></i>
+                        <h4 class="text-xs font-bold uppercase text-emerald-300 font-mono tracking-wider">NASA Real Surface Image Feed</h4>
+                    </div>
+                    <button onclick="toggleRealImageDrawer()" class="text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+
+                <div>
+                    <h5 id="drawerObsTitle" class="text-xs font-bold text-slate-100 font-mono">Perseverance on the Ground in Color</h5>
+                    <span id="drawerDistanceBadge" class="text-[10px] text-emerald-400 font-mono">Nearest Observation: 8.1 km away</span>
+                </div>
+
+                <!-- Exact Local File Path on User's System -->
+                <div class="space-y-1">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 font-mono block">Real Local File Path on Host Drive:</span>
+                    <div class="p-2 bg-space-900 rounded border border-emerald-500/30 flex items-center justify-between text-[11px] font-mono">
+                        <span id="drawerRealPath" class="text-emerald-300 truncate select-all pr-2">F:\mars details for building website\archive mars surface images\captioned\images\ESP_068360_1985.jpg</span>
+                        <button onclick="copyRealPath()" class="text-[10px] bg-space-800 hover:bg-space-700 text-slate-200 px-2 py-1 rounded shrink-0 border border-space-600 cursor-pointer">
+                            <i class="fa-solid fa-copy mr-1"></i>Copy
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Metadata Grid -->
+                <div class="grid grid-cols-3 gap-2 text-center text-[10px] font-mono bg-space-900/80 p-2 rounded border border-space-800">
+                    <div>
+                        <span class="text-slate-500 block">COORDINATES</span>
+                        <span id="drawerCoords" class="text-cyan-300 font-bold">18.44°N 77.45°E</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 block">SCALE</span>
+                        <span id="drawerScale" class="text-amber-300 font-bold">50 cm/px</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 block">ACQUISITION</span>
+                        <span id="drawerDate" class="text-slate-200">25 Feb 2021</span>
+                    </div>
+                </div>
+
+                <!-- NASA Scientist Caption -->
+                <div class="space-y-1">
+                    <span class="text-[10px] uppercase font-bold text-slate-400 font-mono block">Planetary Scientist Caption:</span>
+                    <p id="drawerCaption" class="text-[11px] text-slate-300 max-h-32 overflow-y-auto leading-relaxed bg-space-900/60 p-2 rounded border border-space-800/80"></p>
+                </div>
+
+                <!-- High-Res Full View Button -->
+                <button onclick="openCurrentHiRISEInModal()" class="w-full py-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded font-mono text-xs font-bold flex items-center justify-center space-x-2 shadow-lg cursor-pointer">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i>
+                    <span>Open High-Resolution Inspector</span>
+                </button>
             </div>
 
             <!-- 3D Navigational Ground Chevrons (Google Street View Style) -->

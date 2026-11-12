@@ -7,6 +7,9 @@ import numpy as np
 MOLA_FILE = "mola_elevation_megt90n000eb.img"
 DB_FILE = "mars_data.db"
 ZIP_PATH = r"F:\mars details for building website\archive mars surface images.zip"
+UNZIPPED_DIR = r"F:\mars details for building website\archive mars surface images"
+CAPTIONED_DIR = os.path.join(UNZIPPED_DIR, "captioned", "images")
+NON_CAPTIONED_DIR = os.path.join(UNZIPPED_DIR, "non-captioned", "images")
 
 # Mars Physical Constants
 MARS_RADIUS_KM = 3389.5
@@ -24,11 +27,8 @@ class MarsEngine:
     def _load_mola(self):
         if os.path.exists(MOLA_FILE):
             print("Loading MOLA elevation data into memory...")
-            self.mola_grid = np.fromfile(MOLA_FILE, dtype='>i2').reshape((2880, 5760)).astype(np.float32)
-            # Precompute rough slope gradient
-            dy, dx = np.gradient(self.mola_grid, 3710.0)
-            self.slope_grid = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
-            print("MOLA grid and slope gradients loaded successfully.")
+            self.mola_grid = np.fromfile(MOLA_FILE, dtype='>i2').reshape((2880, 5760))
+            print("MOLA grid loaded successfully (compact 16-bit format).")
         else:
             print("Warning: MOLA file not found. Topography features will use estimates.")
 
@@ -45,7 +45,16 @@ class MarsEngine:
         c = int(np.clip(lon_east * 16.0, 0, 5759))
 
         elevation = float(self.mola_grid[r, c])
-        slope = float(self.slope_grid[r, c])
+        
+        # Calculate local slope gradient on demand (zero extra memory)
+        r0 = max(0, r - 1)
+        r1 = min(2879, r + 1)
+        c0 = (c - 1) % 5760
+        c1 = (c + 1) % 5760
+        dy = (float(self.mola_grid[r1, c]) - float(self.mola_grid[r0, c])) / ((r1 - r0) * 3710.0 if r1 != r0 else 3710.0)
+        dx = (float(self.mola_grid[r, c1]) - float(self.mola_grid[r, c0])) / (2 * 3710.0)
+        slope = float(np.degrees(np.arctan(np.sqrt(dx**2 + dy**2))))
+
         pressure = float(P0 * np.exp(-elevation / SCALE_HEIGHT))
 
         # Thermal and Radiation Environmental Modeling
@@ -576,8 +585,20 @@ class MarsEngine:
         }
 
     def get_hirise_image_bytes(self, obs_id):
-        """Fetches raw image bytes from the 4.2 GB zip file, or local static samples as fallback."""
-        # 1. Primary: 4.2 GB local archive
+        """Fetches raw image bytes from the unzipped disk archive, the 4.4 GB zip file, or local static samples."""
+        # 1. Primary: Unzipped captioned images folder (super fast direct disk read)
+        captioned_path = os.path.join(CAPTIONED_DIR, f"{obs_id}.jpg")
+        if os.path.exists(captioned_path):
+            with open(captioned_path, "rb") as f:
+                return f.read()
+
+        # 2. Unzipped non-captioned images folder
+        non_captioned_path = os.path.join(NON_CAPTIONED_DIR, f"{obs_id}.jpg")
+        if os.path.exists(non_captioned_path):
+            with open(non_captioned_path, "rb") as f:
+                return f.read()
+
+        # 3. 4.4 GB ZIP Archive fallback
         if os.path.exists(ZIP_PATH):
             target_name = f"captioned/images/{obs_id}.jpg"
             try:
@@ -587,13 +608,13 @@ class MarsEngine:
             except Exception:
                 pass
 
-        # 2. Fallback: local static sample directory (for cloud/Vercel deployment)
+        # 4. Fallback: local static sample directory (for cloud/Vercel deployment)
         sample_path = os.path.join("static", "sample_images", f"{obs_id}.jpg")
         if os.path.exists(sample_path):
             with open(sample_path, "rb") as f:
                 return f.read()
 
-        # 3. Default fallback to first sample available
+        # 5. Default fallback to first sample available
         sample_dir = os.path.join("static", "sample_images")
         if os.path.exists(sample_dir):
             files = [f for f in os.listdir(sample_dir) if f.endswith(".jpg")]
@@ -602,3 +623,67 @@ class MarsEngine:
                     return f.read()
 
         return None
+
+    def find_nearest_hirise(self, lat, lon):
+        """Finds the closest real NASA HiRISE observation to the given coordinate and returns its real path."""
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        lon_leaflet = lon if lon <= 180 else lon - 360
+        
+        cur.execute('''
+            SELECT obs_id, title, lat, lon_east, lon_leaflet, elevation, caption, acquisition_date, spacecraft_altitude, scale,
+                   ((lat - ?) * (lat - ?) + (lon_leaflet - ?) * (lon_leaflet - ?)) AS dist_sq
+            FROM hirise_observations
+            ORDER BY dist_sq ASC
+            LIMIT 1
+        ''', (lat, lat, lon_leaflet, lon_leaflet))
+        
+        row = cur.fetchone()
+        conn.close()
+        
+        if not row:
+            obs_id = "ESP_011261_1960"
+            real_path = os.path.join(CAPTIONED_DIR, f"{obs_id}.jpg")
+            return {
+                "obs_id": obs_id,
+                "title": "Layered Sediments in Jezero Crater Delta",
+                "lat": 18.38,
+                "lon_leaflet": 77.58,
+                "elevation": -2450.0,
+                "image_url": f"/api/hirise/image/{obs_id}",
+                "real_image_path": real_path,
+                "caption": "HiRISE orbital observation of Jezero Crater delta sediments.",
+                "acquisition_date": "2021-02-18",
+                "spacecraft_altitude": "276.0 km",
+                "scale": "50 cm/pixel",
+                "distance_km": 0.0
+            }
+        
+        r = dict(row)
+        obs_id = r["obs_id"]
+        
+        real_path = os.path.join(CAPTIONED_DIR, f"{obs_id}.jpg")
+        if not os.path.exists(real_path):
+            real_path = os.path.join(NON_CAPTIONED_DIR, f"{obs_id}.jpg")
+        if not os.path.exists(real_path):
+            real_path = os.path.abspath(os.path.join("static", "sample_images", f"{obs_id}.jpg"))
+            
+        dist_km = self.compute_great_circle_distance(lat, lon_leaflet, r["lat"], r["lon_leaflet"])
+        
+        return {
+            "obs_id": obs_id,
+            "title": r["title"],
+            "lat": r["lat"],
+            "lon_east": r["lon_east"],
+            "lon_leaflet": r["lon_leaflet"],
+            "elevation": r["elevation"],
+            "image_url": f"/api/hirise/image/{obs_id}",
+            "real_image_path": real_path,
+            "caption": r["caption"],
+            "acquisition_date": r["acquisition_date"],
+            "spacecraft_altitude": r["spacecraft_altitude"],
+            "scale": r["scale"],
+            "distance_km": round(dist_km, 1)
+        }

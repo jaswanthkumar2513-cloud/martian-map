@@ -437,6 +437,10 @@ function openHiRISEViewer(img) {
                 </div>
             </div>
             <p class="text-[11px] text-slate-300 leading-snug line-clamp-3">${img.caption}</p>
+            <div class="text-[10px] text-emerald-300 font-mono break-all bg-space-950 p-1.5 rounded border border-emerald-500/30 select-all">
+                <span class="text-emerald-400 font-bold block mb-0.5"><i class="fa-solid fa-folder-open mr-1"></i>Real Image Path:</span>
+                ${img.real_image_path || `F:\\mars details for building website\\archive mars surface images\\captioned\\images\\${img.obs_id}.jpg`}
+            </div>
             <div class="text-[10px] text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-space-700">
                 <span>Elev: <strong class="text-cyan-300">${img.elevation}m</strong></span>
                 <span>Altitude: <strong class="text-amber-400">${img.spacecraft_altitude}</strong></span>
@@ -450,10 +454,14 @@ function openHiRISEViewer(img) {
 
 function openModal(img) {
     document.getElementById("modalTitle").innerText = `${img.obs_id}: ${img.title}`;
-    document.getElementById("modalCoords").innerText = `${img.lat.toFixed(3)}°, ${img.lon_east.toFixed(3)}°E`;
-    document.getElementById("modalDate").innerText = img.acquisition_date;
-    document.getElementById("modalAltitude").innerText = img.spacecraft_altitude;
-    document.getElementById("modalCaption").innerText = img.caption;
+    document.getElementById("modalCoords").innerText = `${img.lat.toFixed(3)}°, ${img.lon_east ? img.lon_east.toFixed(3) : ''}°E`;
+    document.getElementById("modalDate").innerText = img.acquisition_date || "NASA PDS Archive";
+    document.getElementById("modalAltitude").innerText = img.spacecraft_altitude || "250.0 km";
+    document.getElementById("modalCaption").innerText = img.caption || "HiRISE orbital observation.";
+
+    const realPath = img.real_image_path || `F:\\mars details for building website\\archive mars surface images\\captioned\\images\\${img.obs_id}.jpg`;
+    const realPathEl = document.getElementById("modalRealPath");
+    if (realPathEl) realPathEl.innerText = realPath;
 
     const imgEl = document.getElementById("modalImage");
     const loadingEl = document.getElementById("modalLoading");
@@ -990,6 +998,111 @@ let svHeadingAtDragStart = 0;
 let svStepBump = 0; // visual camera lurch when stepping
 let svActiveCorridor = 0; // 0: Jezero, 1: Valles Marineris, 2: Olympus Mons
 let svIsFullscreen = false;
+let svMode = 'real'; // 'real' (real NASA HiRISE photo) or 'synthetic' (3D procedural canvas)
+let currentRealObs = null; // cached HiRISE metadata
+
+function loadNearestRealImage(lat, lon) {
+    fetch(`/api/hirise/nearest?lat=${lat}&lon=${lon}`)
+        .then(res => res.json())
+        .then(data => {
+            currentRealObs = data;
+            
+            // 1. Update real image background
+            const imgEl = document.getElementById("roverRealImage");
+            if (imgEl && data.image_url) {
+                imgEl.src = data.image_url;
+            }
+
+            // 2. Update real image path banner
+            const pathEl = document.getElementById("svRealPathText");
+            if (pathEl) {
+                pathEl.innerText = data.real_image_path || "Archive";
+                pathEl.title = data.real_image_path || "";
+            }
+
+            const obsIdBadge = document.getElementById("svObsIdBadge");
+            if (obsIdBadge) {
+                obsIdBadge.innerText = data.obs_id;
+            }
+
+            // 3. Update drawer details
+            const drawerTitle = document.getElementById("drawerObsTitle");
+            if (drawerTitle) drawerTitle.innerText = `${data.obs_id}: ${data.title}`;
+
+            const drawerDist = document.getElementById("drawerDistanceBadge");
+            if (drawerDist) drawerDist.innerText = `Nearest Real Observation: ${data.distance_km} km away`;
+
+            const drawerPath = document.getElementById("drawerRealPath");
+            if (drawerPath) drawerPath.innerText = data.real_image_path || "";
+
+            const drawerCoords = document.getElementById("drawerCoords");
+            if (drawerCoords) drawerCoords.innerText = `${Math.abs(data.lat).toFixed(2)}°${data.lat >= 0 ? 'N' : 'S'} ${data.lon_east ? data.lon_east.toFixed(2) : ''}°E`;
+
+            const drawerScale = document.getElementById("drawerScale");
+            if (drawerScale) drawerScale.innerText = data.scale || "50 cm/px";
+
+            const drawerDate = document.getElementById("drawerDate");
+            if (drawerDate) drawerDate.innerText = data.acquisition_date || "NASA Archive";
+
+            const drawerCaption = document.getElementById("drawerCaption");
+            if (drawerCaption) drawerCaption.innerText = data.caption || "HiRISE orbital observation.";
+        })
+        .catch(err => console.warn("Error fetching nearest HiRISE real image:", err));
+}
+
+function toggleStreetViewMode() {
+    const canvas = document.getElementById("roverNavcamCanvas");
+    const realContainer = document.getElementById("roverRealImageContainer");
+    const btn = document.getElementById("btnToggleImageMode");
+    const icon = document.getElementById("iconImageMode");
+    const lbl = document.getElementById("lblImageMode");
+
+    if (svMode === 'real') {
+        svMode = 'synthetic';
+        if (realContainer) realContainer.classList.add("hidden");
+        if (canvas) canvas.classList.remove("hidden");
+        if (btn) {
+            btn.className = "bg-cyan-600/90 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 shadow-xl border border-cyan-400/40 cursor-pointer transition-all";
+        }
+        if (icon) icon.className = "fa-solid fa-satellite text-[10px]";
+        if (lbl) lbl.innerText = "3D Canvas";
+    } else {
+        svMode = 'real';
+        if (canvas) canvas.classList.add("hidden");
+        if (realContainer) realContainer.classList.remove("hidden");
+        if (btn) {
+            btn.className = "bg-emerald-600/90 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-full text-xs font-mono font-bold flex items-center space-x-1.5 shadow-xl border border-emerald-400/40 cursor-pointer transition-all";
+        }
+        if (icon) icon.className = "fa-solid fa-camera text-[10px]";
+        if (lbl) lbl.innerText = "Real Image";
+    }
+    playSfx('click');
+}
+
+function toggleRealImageDrawer() {
+    const drawer = document.getElementById("svRealImageDrawer");
+    if (drawer) {
+        drawer.classList.toggle("hidden");
+        playSfx('click');
+    }
+}
+
+function copyRealPath() {
+    const path = currentRealObs ? currentRealObs.real_image_path : document.getElementById("svRealPathText").innerText;
+    if (path) {
+        navigator.clipboard.writeText(path).then(() => {
+            alert(`Real Image Path copied to clipboard:\n${path}`);
+        }).catch(() => {
+            prompt("Real Image Path on Host Disk:", path);
+        });
+    }
+}
+
+function openCurrentHiRISEInModal() {
+    if (currentRealObs) {
+        openModal(currentRealObs);
+    }
+}
 
 function generateDenseWaypoints(coarseCoords, totalSteps = 28) {
     if (!coarseCoords || coarseCoords.length < 2) return coarseCoords || [];
@@ -1149,6 +1262,7 @@ function openRoverStreetView() {
         renderStreetViewRouteLines();
         const cur = svWaypoints[svCurrentIndex];
         updateRoverMarkerOnMap(cur[0], cur[1], svHeading);
+        loadNearestRealImage(cur[0], cur[1]);
     }
 
     // Force Leaflet to re-measure viewport
@@ -1231,6 +1345,7 @@ function stepRover(direction) {
 
     // Fetch live elevation, slope, temp
     fetchTelemetryForPoint(currentCoord[0], currentCoord[1]);
+    loadNearestRealImage(currentCoord[0], currentCoord[1]);
     updateStreetViewHUD();
 }
 
@@ -1270,6 +1385,7 @@ function teleportRoverTo(lat, lon) {
 
     // Fetch telemetry for this exact point on Mars
     fetchTelemetryForPoint(lat, lon);
+    loadNearestRealImage(lat, lon);
     updateStreetViewHUD();
 }
 
@@ -1387,6 +1503,7 @@ function setStreetViewRoute(routeIdx) {
     }
 
     fetchTelemetryForPoint(startCoord[0], startCoord[1]);
+    loadNearestRealImage(startCoord[0], startCoord[1]);
     updateStreetViewHUD();
     playSfx('warp');
 }
